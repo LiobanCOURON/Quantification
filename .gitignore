@@ -1,40 +1,42 @@
 # --- Environnement virtuel (régénérable via install.bat) ---
-./Quantification_replacement/.venv/
-./Quantification_replacement/venv/
-./Quantification_replacement/.hermes/
-./Quantification_replacement/.pytest_cache/
+.venv/
+venv/
+.hermes/
+.pytest_cache/
 
 # --- Cache Python ---
-./Quantification_replacement/__pycache__/
-./Quantification_replacement/*.pyc
+__pycache__/
+*.pyc
 
 # --- Données / résultats (lourds, non versionnés) ---
-./Quantification_replacement/output/
-./Quantification_replacement/input/
-./Quantification_replacement/WorkInProgress/
-./Quantification_replacement/AtlasImgs/
+output/
+input/
+WorkInProgress/
+AtlasImgs/
 
 # --- Données atlas lourdes (1,6 Go de .nii, non versionnées) ---
-./Quantification_replacement/Rat atlas/
-"./Quantification_replacement/Rat atlas"/
-./Quantification_replacement/WHS_SD_rat_atlas_v4.nii
-./Quantification_replacement/WHS_SD_rat_T2star_v1.01.nii
-./Quantification_replacement/WHS_SD_rat_atlas_v4.label
-./Quantification_replacement/atlas_volumes.csv
+Rat atlas/
+WHS_SD_rat_atlas_v4.nii
+WHS_SD_rat_T2star_v1.01.nii
+WHS_SD_rat_atlas_v4.label
+atlas_volumes.csv
 
 # --- Doublon historique non concerné par le refactoring ---
-./Quantification_replacement/ProjetQuantification.temp/
+ProjetQuantification.temp/
 
-# --- Binaires / livrables ---
-./Quantification_replacement/*.czi
-./Quantification_replacement/*.png
-./Quantification_replacement/*.jpg
-./Quantification_replacement/*.jpeg
-./Quantification_replacement/*.xlsx
-./Quantification_replacement/*.pdf
-./Quantification_replacement/*.odp
-./Quantification_replacement/*.pptx
+# --- Binaires / livrables (ignorés récursivement) ---
+*.czi
+*.png
+*.jpg
+*.jpeg
+*.xlsx
+*.pdf
+*.odp
+*.pptx
 
 # --- Logs ---
-./Quantification_replacement/*.log
-./Quantification_replacement/logs/
+*.log
+logs/
+
+# --- Sauvegarde du .git imbriqué (récupération uniquement, non versionné) ---
+.git.bak/
