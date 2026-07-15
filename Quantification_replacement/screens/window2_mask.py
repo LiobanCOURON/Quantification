@@ -476,7 +476,7 @@ class Window2Screen(BaseScreen):
         tl_w, tl_h = sizes["tl_w"], sizes["tl_h"]
 
         if "tl" in self.labels:
-            tl_source = self.current_coronal_path or _resolve_image_path("MRI.png")
+            tl_source = self.current_coronal_path or _resolve_image_path("MRI.png", str(self.base))
             pil, vp = self._load_zoomed_pil(tl_source, tl_w, tl_h, "tl")
             if pil is not None:
                 pil = self._draw_markers_zoomed(pil, self.marker_points.get("tl", []),
@@ -486,7 +486,7 @@ class Window2Screen(BaseScreen):
                 self.labels["tl"].configure(image=photo)
 
         if "tr" in self.labels:
-            tr_source = self.current_histology_path or _resolve_image_path("Histo.png")
+            tr_source = self.current_histology_path or _resolve_image_path("Histo.png", str(self.base))
             pil, vp = self._load_zoomed_pil(tr_source, quad_w, quad_h, "tr")
             if pil is not None:
                 pil = self._draw_markers_zoomed(pil, self.marker_points.get("tr", []),
@@ -496,7 +496,7 @@ class Window2Screen(BaseScreen):
                 self.labels["tr"].configure(image=photo)
 
         if "bl" in self.labels:
-            bl_source = self.current_atlas_path or _resolve_image_path("ATLAS.png")
+            bl_source = self.current_atlas_path or _resolve_image_path("ATLAS.png", str(self.base))
             pil, _vp = self._load_zoomed_pil(bl_source, quad_w, quad_h, "bl")
             if pil is not None:
                 photo = ImageTk.PhotoImage(pil)
@@ -504,7 +504,7 @@ class Window2Screen(BaseScreen):
                 self.labels["bl"].configure(image=photo)
 
         if "br" in self.labels:
-            br_source = self.br_result_path or _resolve_image_path("Alignment.png")
+            br_source = self.br_result_path or _resolve_image_path("Alignment.png", str(self.base))
             pil, _vp = self._load_zoomed_pil(br_source, quad_w, quad_h, "br")
             if pil is not None:
                 photo = ImageTk.PhotoImage(pil)
