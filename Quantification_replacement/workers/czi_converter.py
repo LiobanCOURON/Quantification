@@ -53,23 +53,31 @@ def convert_folder_to_jpeg(folder, output_dir, downsample, quality=95, log_prefi
 
 
 def convert_czi_to_png(czi_folder_path, base_output_dir):
-    """20x conversion pour le pipeline Window2 (alignement/masque)."""
+    """20x conversion pour le pipeline Window2 (alignement/masque).
+
+    NB: convert_one_file ajoute deja 'downsampled<factor>_jpeg' a output_dir,
+    donc on passe base_output_dir tel quel (sans JPEG_OUTPUT_SUBDIR) pour
+    ecrire dans <base>/output/downsampled20_jpeg (lu par le scanner de ROI).
+    """
     convert_folder_to_jpeg(
         czi_folder_path,
-        Path(base_output_dir) / JPEG_OUTPUT_SUBDIR,
+        Path(base_output_dir),
         downsample=DOWNSAMPLE_FACTOR, quality=95,
         log_prefix="convert_czi_to_png",
     )
 
 
 def convert_czi_to_quantification_jpeg(czi_folder_path, base_output_dir):
-    """4x conversion indépendante pour le pipeline Window3 (quantification)."""
+    """4x conversion indépendante pour le pipeline Window3 (quantification).
+
+    Idem: convert_one_file ajoute deja le subdir, on passe base_output_dir tel quel.
+    """
     global _conversion_running
     _conversion_running = True
     try:
         convert_folder_to_jpeg(
             czi_folder_path,
-            Path(base_output_dir) / QUANTIFICATION_JPEG_OUTPUT_SUBDIR,
+            Path(base_output_dir),
             downsample=QUANTIFICATION_DOWNSAMPLE, quality=95,
             log_prefix="convert_czi_to_quantification_jpeg",
         )
