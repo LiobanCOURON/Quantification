@@ -30,9 +30,13 @@ ProjetQuantification.temp/
 *.jpg
 *.jpeg
 *.xlsx
-*.pdf
 *.odp
 *.pptx
+
+# --- PDF : les livrables lourds sont ignorés, mais les documents de référence sont gardés ---
+*.pdf
+!Quantification_replacement/OrgaApp.pdf
+!Manuel_Quantification.pdf
 
 # --- Logs ---
 *.log
