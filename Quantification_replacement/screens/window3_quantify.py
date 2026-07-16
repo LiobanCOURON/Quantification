@@ -71,12 +71,12 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
 
         header = tk.Frame(outer, bg=BG_COLOR)
         header.pack(fill=tk.X, padx=12, pady=(10, 4))
-        tk.Label(header, text="Window 3 — Quantification cellulaire",
+        tk.Label(header, text="Window 3 — Cellular quantification",
                  font=("Arial", 16, "bold"), bg=BG_COLOR, fg=FG_COLOR).pack(anchor="w")
 
         input_root = self._input_root()
         image_count = len(discover_jpeg_images(input_root, recursive=True))
-        tk.Label(header, text=f"Source JPEG 4x : {input_root}  —  {image_count} image(s) détectée(s)",
+        tk.Label(header, text=f"Source 4x JPEG : {input_root}  —  {image_count} image(s) detected",
                  font=SMALL_FONT, bg=BG_COLOR, fg=FG_COLOR).pack(anchor="w", pady=(2, 0))
         add_help_button(
             header, "Window 3 — Help",
@@ -121,7 +121,7 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
                  ).grid(row=1, column=0, sticky="w", padx=8, pady=5)
         ttk.Progressbar(progress_box, variable=self.file_var, maximum=100
                         ).grid(row=1, column=1, sticky="ew", padx=8, pady=5)
-        self.status_label = tk.Label(progress_box, text="Prêt.", font=SMALL_FONT,
+        self.status_label = tk.Label(progress_box, text="Ready.", font=SMALL_FONT,
                                      bg=BG_COLOR, fg=FG_COLOR, anchor="w")
         self.status_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(5, 2))
         self.file_label = tk.Label(progress_box, text="", font=SMALL_FONT,
@@ -145,11 +145,11 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         log_scroll.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
-        right = tk.LabelFrame(content, text="Prévisualisation masque", font=FONT, bg=BG_COLOR, fg=FG_COLOR)
+        right = tk.LabelFrame(content, text="Mask preview", font=FONT, bg=BG_COLOR, fg=FG_COLOR)
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
-        self.preview_label = tk.Label(right, text="Le dernier masque détecté apparaîtra ici.",
+        self.preview_label = tk.Label(right, text="The last detected mask will appear here.",
                                       font=FONT, bg="white", fg="gray")
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
         # Zoom + pan bindings (parity with Window 2 / Window 4).
@@ -211,14 +211,21 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
             return
         if not mask_path or not os.path.exists(mask_path):
             return
-        win_w = self.root.winfo_width() if self.root.winfo_width() > 100 else 800
-        win_h = self.root.winfo_height() if self.root.winfo_height() > 100 else 600
-        max_w = max(200, int(win_w * 0.42))
-        max_h = max(180, int(win_h * 0.55))
+        lw = self.preview_label.winfo_width()
+        lh = self.preview_label.winfo_height()
+        if lw > 20 and lh > 20:
+            max_w, max_h = lw, lh
+        else:
+            win_w = self.root.winfo_width() if self.root.winfo_width() > 100 else 800
+            win_h = self.root.winfo_height() if self.root.winfo_height() > 100 else 600
+            max_w = max(200, int(win_w * 0.42))
+            max_h = max(180, int(win_h * 0.55))
         try:
             img = Image.open(mask_path).convert("RGB")
             img = self._zoom_crop(img)
-            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+            # Fill the canvas with the cropped (zoomed) region instead of
+            # shrinking it to fit (which left a small floating image).
+            img = img.resize((max(1, max_w), max(1, max_h)), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(img)
         except Exception as exc:
             print(f"[window3] cannot load preview {mask_path}: {exc}")
@@ -235,13 +242,13 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         if self.file_var is not None:
             self.file_var.set(0.0)
         if self.status_label is not None:
-            self.status_label.config(text="Prêt.")
+            self.status_label.config(text="Ready.")
         if self.file_label is not None:
             self.file_label.config(text="")
         if self.count_label is not None:
             self.count_label.config(text="")
         if self.preview_label is not None:
-            self.preview_label.config(image="", text="Le dernier masque détecté apparaîtra ici.")
+            self.preview_label.config(image="", text="The last detected mask will appear here.")
         if self.log_text is not None:
             self.log_text.delete("1.0", tk.END)
 
@@ -264,11 +271,11 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
             image_key = image or str(event.get("file_index", ""))
             self.log_states[image_key] = {}
             if self.status_label is not None:
-                self.status_label.config(text="Pré-traitement...")
+                self.status_label.config(text="Pre-processing...")
             if self.file_label is not None:
                 self.file_label.config(
                     text=f"Image {event.get('file_index', '?')} / {event.get('file_total', '?')} : {image}")
-            self._log(f"Image {image} : pré-traitement", "info")
+            self._log(f"Image {image} : pre-processing", "info")
         elif event_type in ("file_step", "heartbeat"):
             if self.status_label is not None:
                 self.status_label.config(text="Quantification (two-pass)...")
@@ -294,26 +301,26 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
             mask_path = event.get("mask_path", "")
             if mask_path:
                 self._set_preview(mask_path)
-            self._log(f"Image {image} : quantification terminée ! {num_cells} cellules", "ok")
+            self._log(f"Image {image} : quantification finished! {num_cells} cells", "ok")
             if self.count_label is not None:
-                self.count_label.config(text=f"Dernier résultat : {num_cells} cellule(s)")
+                self.count_label.config(text=f"Last result: {num_cells} cell(s)")
         elif event_type == "file_error":
-            self._log(f"Image {image} : erreur - {message}", "error")
+            self._log(f"Image {image} : error - {message}", "error")
             if self.count_label is not None:
-                self.count_label.config(text=f"Erreur sur {image}")
+                self.count_label.config(text=f"Error on {image}")
         elif event_type == "waiting_for_images":
             if self.status_label is not None:
-                self.status_label.config(text="En attente des prochains JPEG 4x...")
+                self.status_label.config(text="Waiting for the next 4x JPEG...")
         elif event_type == "done":
             self.running = False
             total_cells = event.get("total_cells", 0)
             successful = event.get("successful_images", 0)
             total = event.get("total_images", 0)
-            text = f"Terminé : {total_cells} cellule(s), {successful}/{total} image(s)"
+            text = f"Done: {total_cells} cell(s), {successful}/{total} image(s)"
             if self.status_label is not None:
                 self.status_label.config(text=text)
             if self.count_label is not None:
-                self.count_label.config(text=f"Total : {total_cells} cellule(s)")
+                self.count_label.config(text=f"Total: {total_cells} cell(s)")
             if self.start_button is not None:
                 self.start_button.config(state=tk.NORMAL)
             if self.next_button is not None:
@@ -323,8 +330,8 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         elif event_type == "worker_error":
             self.running = False
             if self.status_label is not None:
-                self.status_label.config(text="Erreur quantification.")
-            self._log(event.get("error", "Erreur inconnue"), "error")
+                self.status_label.config(text="Quantification error.")
+            self._log(event.get("error", "Unknown error"), "error")
             if self.start_button is not None:
                 self.start_button.config(state=tk.NORMAL)
             if self.next_button is not None:
@@ -363,9 +370,9 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         image_paths = discover_jpeg_images(input_root, recursive=True)
         if not image_paths and not quantification_conversion_running():
             messagebox.showwarning(
-                "Aucune image",
-                f"Aucun JPEG trouvé dans:\n{input_root}\n\n"
-                "Lancer d'abord la conversion .czi → jpeg depuis les fenêtres précédentes.",
+                "No image",
+                f"No JPEG found in:\n{input_root}\n\n"
+                "Run the .czi -> jpeg conversion from the previous windows first.",
             )
             return
 

@@ -74,7 +74,7 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
             "  • Mouse wheel : zoom in / out, centered on the cursor.\n"
             "  • Middle mouse button (drag) : pan the image when zoomed.\n"
             "  • 'Reset zoom' button : return to fit-to-window.\n"
-            "  • 'Précédant' / 'Suivant' : move between ROI scenes.\n",
+            "  • 'Previous' / 'Next' : move between ROI scenes.\n",
         )
 
         main = tk.Frame(self.frame, bg=BG_COLOR)
@@ -93,12 +93,12 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
         cb_frame.grid(row=0, column=0, sticky="ew")
         self.source_var = tk.IntVar(value=1)
         tk.Checkbutton(
-            cb_frame, text=".czi dans le dossier Input", font=SMALL_FONT,
+            cb_frame, text=".czi in the Input folder", font=SMALL_FONT,
             variable=self.source_var, onvalue=1, command=self._select_input_folder,
             bg=BG_COLOR,
         ).pack(anchor="w")
         tk.Checkbutton(
-            cb_frame, text=".czi dans un autre dossier", font=SMALL_FONT,
+            cb_frame, text=".czi in another folder", font=SMALL_FONT,
             variable=self.source_var, onvalue=2, command=self._select_other_folder,
             bg=BG_COLOR,
         ).pack(anchor="w")
@@ -140,7 +140,7 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
         right.rowconfigure(0, weight=1)
 
         self.preview_label = tk.Label(
-            right, text="Sélectionnez un .czi", font=FONT, bg="white", fg="gray"
+            right, text="Select a .czi", font=FONT, bg="white", fg="gray"
         )
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         # Zoom + pan bindings (parity with Window 2 / Window 4).
@@ -157,9 +157,9 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
 
         nav = tk.Frame(right, bg=BG_COLOR)
         nav.grid(row=2, column=0, pady=6)
-        tk.Button(nav, text="Précédant", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(nav, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._prev_scene).pack(side=tk.LEFT, padx=8)
-        tk.Button(nav, text="Suivant", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(nav, text="Next", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._next_scene).pack(side=tk.LEFT, padx=8)
         tk.Button(nav, text="Reset zoom", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._reset_zoom).pack(side=tk.LEFT, padx=8)
@@ -249,15 +249,15 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
             self.selected_scenes = self._scene_folders_for_stem(self.selected_stem)
 
         if self.selected_stem is None:
-            self.preview_label.config(image="", text="Sélectionnez un .czi")
+            self.preview_label.config(image="", text="Select a .czi")
             if self.preview_status is not None:
                 self.preview_status.config(text="")
             return
 
         if not self.selected_scenes or not (0 <= self.scene_index < len(self.selected_scenes)):
-            self.preview_label.config(image="", text="Conversion en cours...")
+            self.preview_label.config(image="", text="Converting...")
             if self.preview_status is not None:
-                self.preview_status.config(text="Conversion 50x en cours, veuillez patienter...")
+                self.preview_status.config(text="50x conversion in progress, please wait...")
             self._start_temp_polling()
             return
 
@@ -269,10 +269,21 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
             return
 
         avail_w, avail_h = self._get_preview_size()
+        # Use the live label size when laid out so the zoomed crop fills the
+        # canvas (label is sticky="nsew" and expands); fall back to estimate.
+        lw = self.preview_label.winfo_width()
+        lh = self.preview_label.winfo_height()
+        if lw > 20 and lh > 20:
+            disp_w, disp_h = lw, lh
+        else:
+            disp_w, disp_h = avail_w, avail_h
         try:
             base_img = Image.open(str(img_path)).convert("RGB")
             base_img = self._zoom_crop(base_img)
-            base_img.thumbnail((avail_w, avail_h), Image.Resampling.LANCZOS)
+            # Fill the canvas with the cropped (zoomed) region instead of
+            # shrinking it to fit (which left a small floating image).
+            base_img = base_img.resize((max(1, disp_w), max(1, disp_h)),
+                                       Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(base_img)
         except Exception as exc:
             print(f"[window1] cannot load preview {img_path}: {exc}")
@@ -390,7 +401,7 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
         """Select Other Folder (usage interne)."""
         initial = self.state.czi_folder_path if os.path.isdir(self.state.czi_folder_path) else str(self.base / "input")
         folder = filedialog.askdirectory(
-            title="Sélectionner le dossier contenant les .czi",
+            title="Select the folder containing the .czi files",
             mustexist=True, initialdir=initial,
         )
         if folder:
