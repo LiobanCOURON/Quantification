@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog
 
 import numpy as np
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
@@ -477,51 +477,65 @@ class Window4Screen(BaseScreen):
         region_overlay = self._load_mask_rgba(region_png, base.size)
         if region_overlay is not None:
             base = Image.alpha_composite(base, region_overlay)
-        # Draw ONLY the in-region (filtered) cells as cyan markers. Cells whose
-        # centroid falls in the region-mask "none" area (black / background) are
-        # visually deleted here and already excluded from every calculation
-        # (diagram, CSVs, counts) via self._filtered_cells(); they stay saved in
-        # the quantification JSON of relative coordinates. This keeps the image
-        # preview WYSIWYG with the diagram/exports instead of overlaying the raw,
-        # unfiltered merged QuPath cell mask.
+        # Overlay the precise QuPath cell mask, curated to the labelled region
+        # only. Cells (or cell pixels) falling in the region-mask "none" area
+        # (black / background) are deleted visually here via a region AND, and
+        # are already excluded from every calculation (diagram, CSVs, counts)
+        # via self._filtered_cells(); they stay saved in the quantification
+        # JSON of relative coordinates. The exact QuPath blob shapes are kept.
         alpha = max(0.0, min(1.0, self.cell_opacity.get() / 100.0))
-        cells = self._filtered_cells(item)
-        base = self._draw_filtered_cells(base, cells, alpha)
+        cell_overlay = self._overlay_filtered_cell_mask(
+            item.get("cell_mask_path"), item.get("mask_png"), base.size, alpha)
+        if cell_overlay is not None:
+            base = Image.alpha_composite(base, cell_overlay)
         return base.convert("RGB")
 
-    def _draw_filtered_cells(self, base, cells, alpha):
-        """Draw the region-filtered cells as semi-transparent cyan markers.
+    def _overlay_filtered_cell_mask(self, cell_mask_path, region_mask_path, target_size, alpha):
+        """Overlay the precise QuPath cell mask restricted to the labelled region.
+
+        The merged QuPath cell mask (white cells on black) is ANDed with the
+        warped atlas region mask so that only cell pixels inside a labelled
+        region survive — the exact blob shapes are preserved, the "none" area
+        is deleted. Mirrors ``combine_and_filter_cell_mask`` but returns an
+        opacity-aware RGBA overlay (tinted cyan) instead of saving a file.
 
         Args:
-            base (PIL.Image.RGBA): composited histology + region overlay.
-            cells (list[dict]): cells already filtered to in-region only.
+            cell_mask_path (Any): merged detected-cell mask (*_cell_mask.tif).
+            region_mask_path (Any): warped colored atlas region mask (mask_png).
+            target_size (tuple): (w, h) to resize the overlay to (base image).
             alpha (float): cell overlay strength 0..1 (self.cell_opacity %).
 
         Returns:
-            PIL.Image.RGBA: ``base`` with cyan cell markers drawn on top.
+            PIL.Image.RGBA or None.
         """
-        if not cells or alpha <= 0.0:
-            return base
-        w, h = base.size
-        draw = ImageDraw.Draw(base, "RGBA")
-        # Marker radius scales mildly with image size so dots stay visible
-        # when zoomed (preview is cropped from this native-res image).
-        radius = max(1.5, min(6.0, (min(w, h) / 512.0) * 3.0))
-        a_byte = int(255 * alpha)
-        for cell in cells:
+        if alpha <= 0.0:
+            return None
+        if not cell_mask_path or not os.path.exists(cell_mask_path):
+            return None
+        try:
+            cell_img = Image.open(cell_mask_path).convert("L")
+        except Exception as exc:
+            print(f"[window4] cannot load cell mask {cell_mask_path}: {exc}")
+            return None
+        cell_img = cell_img.resize(target_size, Image.Resampling.LANCZOS)
+        cell_arr = np.asarray(cell_img)
+        cell_bin = (cell_arr > 20).astype(np.uint8)
+        if region_mask_path and os.path.exists(region_mask_path):
             try:
-                nx = float(cell.get("x_relative", 0.0))
-                ny = float(cell.get("y_relative", 0.0))
-            except (TypeError, ValueError):
-                continue
-            px = int(round(min(1.0, max(0.0, nx)) * (w - 1)))
-            py = int(round(min(1.0, max(0.0, ny)) * (h - 1)))
-            draw.ellipse(
-                [px - radius, py - radius, px + radius, py + radius],
-                fill=(0, 200, 255, a_byte),
-                outline=(0, 120, 180, min(255, a_byte + 40)),
-            )
-        return base
+                region_img = Image.open(region_mask_path).convert("RGB").resize(
+                    target_size, Image.Resampling.NEAREST)
+                region_arr = np.asarray(region_img)
+                region_bin = (np.any(region_arr[:, :, :3] > 8, axis=2)).astype(np.uint8)
+                cell_bin = cell_bin * region_bin
+            except Exception:
+                pass
+        a_byte = int(255 * alpha)
+        out = np.zeros((target_size[1], target_size[0], 4), dtype=np.uint8)
+        out[cell_bin > 0, 0] = 0
+        out[cell_bin > 0, 1] = 200
+        out[cell_bin > 0, 2] = 255
+        out[cell_bin > 0, 3] = a_byte
+        return Image.fromarray(out, mode="RGBA")
 
     def _make_diagram_preview(self, item=None):
         """Make Diagram Preview (usage interne).

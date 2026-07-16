@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 """Headless smoke test for the W4 "delete out-of-region cells" behaviour.
 
-Proves:
-  * Cells whose centroid is in the region-mask "none" area (black) are NOT
-    drawn in the image preview (visually deleted).
-  * They are still present in the quantification JSON of relative coordinates
-    (saved, not destroyed).
-  * Calculations (diagram count / filtered-cells list) exclude them.
+Proves the IMAGE PREVIEW keeps the precise QuPath cell blobs (not dots) but
+removes every cell pixel that falls in the region-mask "none" area (black),
+while:
+  * the quantification JSON of relative coordinates is untouched (cells saved),
+  * calculations (diagram, CSVs, counts) exclude out-of-region cells.
 
 No display / no Tk mainloop required.
 """
 from __future__ import annotations
+import sys, tempfile
 from pathlib import Path
-import sys
-import tkinter as tk
-from PIL import Image, ImageDraw
 
 BASE = Path(__file__).parent.resolve().parent
 sys.path.insert(0, str(BASE))
 
 import numpy as np
+import tkinter as tk
+from PIL import Image, ImageDraw
+
 import screens.window4_validate as w4
-from mask_replacer import filter_cells_by_region
+from mask_replacer import filter_cells_by_region, combine_and_filter_cell_mask
 
 
 def _make_fake_app():
@@ -48,85 +48,96 @@ def _make_fake_app():
 
 
 def _build_tmp(tmp: Path):
-    """Synthetic scene + region mask + cells (3 in-region, 2 out-of-region)."""
-    w = h = 200
+    """Synthetic scene + region mask + merged QuPath cell mask (blobs) + cells."""
+    w = h = 256
     img = Image.new("RGB", (w, h), (120, 90, 60))
-    ImageDraw.Draw(img).ellipse([20, 20, 180, 180], fill=(200, 180, 140))
+    ImageDraw.Draw(img).ellipse([20, 20, 236, 236], fill=(200, 180, 140))
     img_path = tmp / "scene_z_slice_1.jpeg"
     img.save(img_path, format="JPEG")
 
     # Region mask: red blob in the LEFT half only -> right half is "none".
     mask = Image.new("RGB", (w, h), (0, 0, 0))
-    ImageDraw.Draw(mask).rectangle([0, 0, 99, 199], fill=(255, 0, 0))
+    ImageDraw.Draw(mask).rectangle([0, 0, 127, 255], fill=(255, 0, 0))
     mask_path = tmp / "roi_region.png"
     mask.save(mask_path)
 
+    # Merged QuPath cell mask: precise white blobs, some in-region (left),
+    # some in the "none" area (right).
+    cell = Image.new("L", (w, h), 0)
+    cd = ImageDraw.Draw(cell)
+    cd.ellipse([40, 40, 70, 70], fill=255)    # in-region blob
+    cd.ellipse([15, 170, 45, 200], fill=255)  # in-region blob
+    cd.ellipse([100, 120, 130, 150], fill=255)  # in-region blob
+    cd.ellipse([200, 40, 230, 70], fill=255)  # OUT (none) blob
+    cd.ellipse([220, 200, 250, 230], fill=255)  # OUT (none) blob
+    cell_path = tmp / "scene_cell_mask.tif"
+    cell.save(cell_path)
+
     cells = [
-        {"x_relative": 0.25, "y_relative": 0.25},  # in-region  (left)
-        {"x_relative": 0.10, "y_relative": 0.80},  # in-region  (left)
-        {"x_relative": 0.45, "y_relative": 0.50},  # in-region  (left)
-        {"x_relative": 0.75, "y_relative": 0.25},  # OUT of region (right/none)
-        {"x_relative": 0.90, "y_relative": 0.90},  # OUT of region (right/none)
+        {"x_relative": 0.21, "y_relative": 0.21},  # in-region
+        {"x_relative": 0.11, "y_relative": 0.83},  # in-region
+        {"x_relative": 0.45, "y_relative": 0.52},  # in-region
+        {"x_relative": 0.90, "y_relative": 0.21},  # OUT (none)
+        {"x_relative": 0.92, "y_relative": 0.84},  # OUT (none)
     ]
-    return img_path, mask_path, cells
+    return img_path, mask_path, cell_path, cells
 
 
-def _count_cyan_markers(preview_rgb, tmp):
-    """Count opaque-ish cyan-ish pixels (the drawn in-region cells)."""
-    arr = np.asarray(preview_rgb.convert("RGB")).astype(int)
-    cyan = (arr[:, :, 0] < 80) & (arr[:, :, 1] > 120) & (arr[:, :, 2] > 150)
-    return int(cyan.sum())
+def _cyan_pixels(rgb_arr):
+    return (rgb_arr[:, :, 0] < 80) & (rgb_arr[:, :, 1] > 120) & (rgb_arr[:, :, 2] > 150)
 
 
 def main():
-    import tempfile
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        img_path, mask_path, cells = _build_tmp(tmp)
+        img_path, mask_path, cell_path, cells = _build_tmp(tmp)
 
-        # 1) filter_cells_by_region (the calculation-side filter) keeps 3.
+        # 1) calculation-side filter keeps 3 (centroid based).
         kept = filter_cells_by_region(cells, str(mask_path))
-        assert len(kept) == 3, f"expected 3 in-region cells, got {len(kept)}"
-        # All kept cells are on the left half (in-region).
-        for c in kept:
-            assert c["x_relative"] < 0.5, f"kept an out-of-region cell: {c}"
+        assert len(kept) == 3, f"expected 3, got {len(kept)}"
         print(f"[ok] filter_cells_by_region keeps {len(kept)}/{len(cells)} cells")
 
-        # 2) Build a Window4Screen and force _make_image_preview to draw from
-        #    the filtered cells. We proxy _current_item()/_filtered_cells.
+        # 2) image preview now curates the precise QuPath mask (raster AND).
         app = _make_fake_app()
-        screen = w4.Window4Screen(app)
+        scr = w4.Window4Screen(app)
         item = {
             "roi_folder_name": "scene",
             "z_images": [img_path],
             "mask_png": mask_path,
-            "cell_mask_path": None,
+            "cell_mask_path": cell_path,
             "quant_data": {"cells": cells},
             "quant_json": None,
             "cells_csv_path": None,
         }
-        screen.items = [item]
-        screen.index = 0
-        screen.z_index = 0
-        preview = screen._make_image_preview(item)
-        drawn = _count_cyan_markers(preview, tmp)
-        # 3 in-region markers must be drawn; the 2 out-of-region ones must NOT.
-        assert drawn > 0, "no in-region cell markers were drawn"
-        # Each marker is a small disc; ensure out-of-region right half has none.
-        arr = np.asarray(preview.convert("RGB")).astype(int)
-        right_half = (arr[:, 100:, 0] < 80) & (arr[:, 100:, 1] > 120) & (arr[:, 100:, 2] > 150)
-        assert int(right_half.sum()) == 0, "out-of-region (none area) cells were drawn!"
-        print(f"[ok] image preview drew {drawn} cyan pixels, 0 in the 'none' area")
+        scr.items = [item]; scr.index = 0; scr.z_index = 0
 
-        # 3) The JSON (cells list) is untouched -> still holds all 5.
-        assert len(item["quant_data"]["cells"]) == 5, "cells JSON mutated!"
+        preview = np.asarray(scr._make_image_preview(item).convert("RGB")).astype(int)
+        cyan = _cyan_pixels(preview)
+        # The two OUT blobs live entirely in the right half -> must be gone.
+        right_cyan = int(cyan[:, 128:].sum())
+        assert right_cyan == 0, f"out-of-region QuPath blobs still drawn: {right_cyan} px"
+        # The three in-region blobs must remain (precise), with real area.
+        left_cyan = int(cyan[:, :128].sum())
+        assert left_cyan > 500, f"in-region QuPath blobs missing/too few: {left_cyan} px"
+        print(f"[ok] preview keeps {left_cyan} in-region blob px, 0 in 'none' area (precise, not dots)")
+
+        # 3) JSON untouched (saved).
+        assert len(item["quant_data"]["cells"]) == 5
         print("[ok] quantification JSON still holds all 5 cells (saved)")
 
-        # 4) _filtered_cells used by diagram/counts == 3.
-        assert len(screen._filtered_cells(item)) == 3
+        # 4) diagram/counts use 3 in-region cells.
+        assert len(scr._filtered_cells(item)) == 3
         print("[ok] diagram/counts use the 3 in-region cells only")
 
-    print("\nALL CHECKS PASSED — out-of-region cells are visually + computationally removed, still saved in JSON.")
+        # 5) parity: the saved combined mask (combine_and_filter_cell_mask)
+        #    matches the preview's curation for the right half.
+        combined = tmp / "combined.png"
+        combine_and_filter_cell_mask(str(cell_path), str(mask_path), str(combined))
+        comb = np.asarray(Image.open(combined).convert("L"))
+        assert int((comb[:, 128:] > 0).sum()) == 0, "exported combined mask has out-of-region cells"
+        print("[ok] exported combined_cell_mask.png also deletes 'none' area (parity)")
+
+    print("\nALL CHECKS PASSED — precise QuPath blobs kept, out-of-region cells visually + computationally removed, JSON preserved.")
 
 
 if __name__ == "__main__":
