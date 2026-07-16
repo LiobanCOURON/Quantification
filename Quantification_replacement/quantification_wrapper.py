@@ -724,7 +724,7 @@ def _write_volumetric_csv(
     thickness_um: float,
     *,
     slice_depth_um: float = 0.0,
-    interslice_um: float = 0.0,
+    interslice_um: float = 100.0,
     region_contexts: dict[str | Path, dict] | None = None,
 ) -> None:
     """Write Volumetric Csv (usage interne).
@@ -1064,7 +1064,7 @@ def run_quantification(
     input_complete_cb: Callable[[], bool] | None = None,
     poll_interval_seconds: float = 1.5,
     slice_depth_um: float = 0.0,
-    interslice_um: float = 0.0,
+    interslice_um: float = 100.0,
     region_contexts: dict[str | Path, dict] | None = None,
 ) -> QuantificationResult:
     """

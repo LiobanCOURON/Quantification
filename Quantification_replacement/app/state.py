@@ -12,7 +12,7 @@ class AppState:
 
     czi_folder_path: str = "./input"
     slice_depth_um: float = 40.0
-    interslice_um: float = 0.0
+    interslice_um: float = 100.0
     quantification_running: bool = False
     # Rempli par Window1, lu par Window4.
     selected_stem: str | None = None
