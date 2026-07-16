@@ -45,6 +45,7 @@ class PreviewZoomPanMixin:
             tuple: ``(nx0, ny0, nx1, ny1)`` normalized coordinates of the visible
             region (all in [0,1]).
         """
+        st = self.zoom_state
         zoom = max(1.0, st["zoom"])
         half = 0.5 / zoom
         cx, cy = st["cx"], st["cy"]
