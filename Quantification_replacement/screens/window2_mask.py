@@ -79,6 +79,8 @@ class Window2Screen(BaseScreen):
         self.current_histology_path = None
         self.roi_poll_id = None
         self.awaiting_next_roi = False
+        self.mask_opacity = 10          # % visibility of the atlas label overlay over MRI (90% transparent)
+        self.mask_scale = None
 
     # ============================================================ build (layout)
     def build(self):
@@ -130,14 +132,21 @@ class Window2Screen(BaseScreen):
 
         self.labels = {}
 
-        # Top-left: MRI + slider.
+        # Top-left: MRI (image + atlas slider) with a vertical mask-opacity
+        # slider on the right so the labeled mask can be blended over the MRI.
         tl_frame = tk.Frame(grid_frame, bg=BG_COLOR)
         tl_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-        tl_image_label = tk.Label(tl_frame, text="MRI", font=FONT, bg="white", fg="gray")
+        tl_frame.rowconfigure(0, weight=1)
+        tl_frame.columnconfigure(0, weight=1)
+        tl_frame.columnconfigure(1, weight=0)
+
+        tl_main = tk.Frame(tl_frame, bg=BG_COLOR)
+        tl_main.grid(row=0, column=0, sticky="nsew")
+        tl_image_label = tk.Label(tl_main, text="MRI", font=FONT, bg="white", fg="gray")
         tl_image_label.pack(fill=tk.BOTH, expand=True)
         self.labels["tl"] = tl_image_label
 
-        tl_control_bar = tk.Frame(tl_frame, bg=BG_COLOR, height=30)
+        tl_control_bar = tk.Frame(tl_main, bg=BG_COLOR, height=30)
         tl_control_bar.pack(fill=tk.X, side=tk.BOTTOM)
         tl_control_bar.pack_propagate(False)
         try:
@@ -159,6 +168,23 @@ class Window2Screen(BaseScreen):
         )
         self.tl_value_label.pack(side=tk.LEFT, padx=(0, 5))
         self.tl_value_label.bind("<Double-Button-1>", self._make_tl_value_editable)
+
+        # Second (vertical) slider: atlas label overlay visibility over the MRI
+        # (same image as the bottom-left canvas, faded to the chosen opacity).
+        tl_mask_slider_frame = tk.Frame(tl_frame, bg=BG_COLOR)
+        tl_mask_slider_frame.grid(row=0, column=1, sticky="ns", padx=(4, 0))
+        tl_mask_slider_frame.rowconfigure(0, weight=1)
+        self.mask_scale = tk.Scale(
+            tl_mask_slider_frame, from_=0, to=100, orient="vertical",
+            font=SMALL_FONT, showvalue=False, command=self._on_mask_opacity_changed,
+            bg=ACCENT_COLOR_GREEN, fg=FG_COLOR, highlightthickness=1, borderwidth=1,
+            sliderrelief="flat",
+        )
+        self.mask_scale.set(self.mask_opacity)
+        self.mask_scale.grid(row=0, column=0, sticky="ns")
+        tk.Label(tl_mask_slider_frame, text="Atlas\noverlay", font=SMALL_FONT,
+                 bg=BG_COLOR, fg=FG_COLOR, justify="center"
+                 ).grid(row=1, column=0, sticky="n")
 
         # Top-right: Histology.
         tr_label = tk.Label(grid_frame, text="Histology", font=FONT, bg="white", fg="gray")
@@ -294,15 +320,41 @@ class Window2Screen(BaseScreen):
             self.tl_value_label.config(text=str(depth))
         self._schedule_atlas_images_update(depth)
 
+    def _on_mask_opacity_changed(self, val):
+        """On the second (vertical) slider: change the labeled-mask overlay
+        opacity over the MRI and re-render the MRI pane (usage interne).
+
+        Args:
+            val (Any): Parametre val (0-100).
+        """
+        self.mask_opacity = int(float(val))
+        self._update_images()
+
     def _schedule_atlas_images_update(self, depth):
         """Schedule atlas Images Update (usage interne).
-        
+
         Args:
             depth (Any): Profondeur / indice de coupe coronaire.
         """
         self._cancel_pending_atlas()
         self.pending_atlas_update_id = self.root.after(
             250, lambda: self._load_atlas_images_for_depth(depth))
+
+    def _load_mask_overlay(self, max_w, max_h):
+        """Load the atlas label image (= bottom-left canvas) cropped/zoomed to
+        the same viewport as the MRI, ready to blend over it.
+
+        Args:
+            max_w (Any): Parametre max_w.
+            max_h (Any): Parametre max_h.
+
+        Returns:
+            Any: Resultat (PIL RGBA image or None).
+        """
+        if not self.current_atlas_path or not os.path.isfile(self.current_atlas_path):
+            return None
+        mask_pil, _vp = self._load_zoomed_pil(self.current_atlas_path, max_w, max_h, "tl")
+        return mask_pil
 
     def _load_atlas_images_for_depth(self, depth):
         """Load atlas Images For Depth (usage interne).
@@ -496,6 +548,38 @@ class Window2Screen(BaseScreen):
             draw.text((cx - tw // 2, cy - th // 2), text, fill="white", font=font)
         return img
 
+    def _blend_mask_overlay(self, base_pil, max_w, max_h):
+        """Blend the atlas label image (the same image shown in the bottom-left
+        canvas) over the MRI at the opacity set by the second (vertical) slider
+        (usage interne).
+
+        The overlay is the exact same source as the bottom-left canvas, only
+        faded: its alpha is scaled to `mask_opacity` % so the MRI shows through.
+
+        Args:
+            base_pil (Any): MRI PIL image (RGBA).
+            max_w (Any): Parametre max_w.
+            max_h (Any): Parametre max_h.
+
+        Returns:
+            Any: Resultat (MRI with atlas label blended in).
+        """
+        if self.mask_opacity <= 0:
+            return base_pil
+        mask = self._load_mask_overlay(max_w, max_h)
+        if mask is None:
+            return base_pil
+        if mask.size != base_pil.size:
+            mask = mask.resize(base_pil.size, Image.Resampling.LANCZOS)
+        if mask.mode != "RGBA":
+            mask = mask.convert("RGBA")
+        # Fade the (identical) atlas label image to the chosen visibility.
+        alpha = int(round(255 * self.mask_opacity / 100.0))
+        ch = list(mask.split())
+        ch[3] = ch[3].point(lambda a: int(a * alpha / 255))
+        mask = Image.merge("RGBA", ch)
+        return Image.alpha_composite(base_pil, mask)
+
     def _update_images(self):
         """Update Images (usage interne)."""
         if not self.labels:
@@ -510,6 +594,7 @@ class Window2Screen(BaseScreen):
             if pil is not None:
                 pil = self._draw_markers_zoomed(pil, self.marker_points.get("tl", []),
                                                 ACCENT_COLOR_BLUE, vp)
+                pil = self._blend_mask_overlay(pil, tl_w, tl_h)
                 photo = ImageTk.PhotoImage(pil)
                 self.images["tl"] = photo
                 self.labels["tl"].configure(image=photo)
@@ -865,7 +950,8 @@ class Window2Screen(BaseScreen):
         """Load Current region d'interet (ROI) (usage interne)."""
         self.br_result_path = None
         if 0 <= self.roi_index < len(self.roi_items):
-            self.current_histology_path = str(self.roi_items[self.roi_index]["image_path"])
+            item = self.roi_items[self.roi_index]
+            self.current_histology_path = str(item["image_path"])
         else:
             self.current_histology_path = None
         self._reset_zoom("tr")
