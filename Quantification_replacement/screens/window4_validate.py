@@ -1,9 +1,8 @@
-"""Window 4 — validation visuelle finale + export volumétrique.
+"""Window 4 — final visual validation + volumetric export.
 
-Classe Screen : tout l'état (_w4_*) en attributs d'instance. Reproduit
-fidèlement window4() (preview image/diagramme, scroll Z, validation/rejet,
-exports CSV volumétriques).
-"""
+Screen class: all state (_w4_*) as instance attributes. Faithfully
+reproduces window4() (image/diagram preview, Z scroll, validation/reject,
+volumetric CSV exports)."""
 
 import os
 import re

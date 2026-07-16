@@ -537,11 +537,11 @@ def main() -> int:
     recursive = not args.no_recursive
 
     if not input_dir.exists() or not input_dir.is_dir():
-        print(f"Erreur : dossier d'entrée invalide : {input_dir}", file=sys.stderr)
+        print(f"Error: invalid input folder: {input_dir}", file=sys.stderr)
         return 1
 
     if not (1 <= args.quality <= 100):
-        print("Erreur : --quality doit être entre 1 et 100.", file=sys.stderr)
+        print("Error: --quality must be between 1 and 100.", file=sys.stderr)
         return 1
 
     czi_files = list(iter_czi_files(input_dir, recursive=recursive))
@@ -575,8 +575,8 @@ def main() -> int:
             print(f"[OK] {czi_path} -> {out_path}")
 
     print(
-        f"Terminé : {converted} image(s) JPEG créée(s), {failed} échec(s). "
-        f"Dossier de sortie : {output_dir / f'downsampled{args.downsample}_jpeg'}"
+        f"Done: {converted} JPEG image(s) created, {failed} failure(s). "
+        f"Output folder: {output_dir / f'downsampled{args.downsample}_jpeg'}"
     )
 
     return 0 if failed == 0 else 2

@@ -117,7 +117,7 @@ MERGE_THRESHOLD_PX = 10.0
 
 NORM_METHODS = {
     "none": {
-        "label": "Aucune (désactivée)",
+        "label": "None (disabled)",
         "groovy": "// Normalisation : aucune",
     },
     "minmax": {
@@ -718,6 +718,157 @@ def _write_summary_csv(path: Path, results: list[ImageQuantificationResult]) -> 
         writer.writerow(["TOTAL", "", total_cells, "", "", "", "", "", "", "", "", "", "", f"{success_count}/{len(results)} success", ""])
 
 
+def _write_volumetric_csv(
+    path: Path,
+    results: list[ImageQuantificationResult],
+    thickness_um: float,
+    *,
+    slice_depth_um: float = 0.0,
+    interslice_um: float = 0.0,
+    region_contexts: dict[str | Path, dict] | None = None,
+) -> None:
+    """Write Volumetric Csv (usage interne).
+
+    Emits the *desired* CSV: absolute cell count, volumetric concentration and
+    an extrapolated absolute total, derived from the section thickness
+    (``thickness_um = slice_depth_um + interslice_um``).
+
+    Two modes:
+
+    * Region-aware (when ``region_contexts[image]`` provides a warped atlas
+      region mask + pixel size): each row is a (image, region) with
+      num_cells, surface_mm2, concentration_cells_per_mm2,
+      cell_volume_mm3 = surface_mm2 * thickness_um / 1e3, and an extrapolated
+      absolute cell number = concentration_cells_per_mm2 * region_volume_mm3
+      (from the atlas volumes table). This reuses the validated math from
+      window4_validate.py / mask_replacer.py.
+    * Whole-section fallback (no region mask): one row per image, area taken
+      from pixel_size_um * image dimensions; concentration per mm3 and an
+      extrapolated total are left blank when a volume cannot be derived.
+
+    Args:
+        path (Path): Fichier CSV de sortie.
+        results (list[ImageQuantificationResult]): Parametre results.
+        thickness_um (float): Epaisseur de coupe (slice_depth + interslice).
+        slice_depth_um (float): Parametre slice_depth_um.
+        interslice_um (float): Parametre interslice_um.
+        region_contexts (dict[str | Path, dict] | None): Parametre region_contexts.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Atlas region volumes (mm3) keyed by region label id.
+    atlas_volumes: dict[int, dict] = {}
+    try:
+        from mask_replacer import load_atlas_volumes
+        atlas_volumes = load_atlas_volumes()
+    except Exception:
+        atlas_volumes = {}
+
+    rows: list[dict] = []
+    has_region_data = bool(region_contexts)
+
+    for result in results:
+        if result.status != "success":
+            continue
+        ctx = (region_contexts or {}).get(result.source_path) or {}
+        mask_png = ctx.get("mask_png")
+        pixel_size_um = float(ctx.get("pixel_size_um") or 0.0)
+        image_w = int(ctx.get("image_width") or 0)
+        image_h = int(ctx.get("image_height") or 0)
+
+        # --- Region-aware path ---
+        if mask_png and pixel_size_um > 0:
+            try:
+                from mask_replacer import (
+                    compute_region_surface_areas_mm2,
+                    count_cells_per_region,
+                )
+                cell_rows = count_cells_per_region(str(mask_png), [
+                    {"x_relative": c.x_relative, "y_relative": c.y_relative} for c in result.cells
+                ])
+                cell_counts = {r["label"]: r["count"] for r in cell_rows}
+                surface = compute_region_surface_areas_mm2(
+                    str(mask_png), pixel_size_um, downsample=20
+                )
+            except Exception:
+                cell_counts, surface = {}, {}
+            all_labels = sorted(set(list(cell_counts.keys()) + list(surface.keys())))
+            for lid in all_labels:
+                n_cells = int(cell_counts.get(lid, 0))
+                surf = surface.get(lid, {})
+                surf_mm2 = float(surf.get("surface_mm2", 0.0))
+                region_name = surf.get("name") or next(
+                    (r["name"] for r in cell_rows if r["label"] == lid), str(lid)
+                )
+                # concentration per mm2 on the section (validated formula).
+                concentration = (n_cells / surf_mm2) if surf_mm2 > 0 else ""
+                # extrapolated volume of the detected cells within this slice.
+                cell_volume_mm3 = (surf_mm2 * thickness_um / 1e3) if (surf_mm2 > 0 and thickness_um > 0) else ""
+                # extrapolated absolute total across the whole atlas region.
+                region_vol = atlas_volumes.get(int(lid), {}).get("volume_mm3", 0.0)
+                extrapolated = (concentration * region_vol) if (concentration != "" and region_vol > 0) else ""
+                rows.append({
+                    "scope": "region",
+                    "image": result.image,
+                    "region_id": lid,
+                    "region_name": region_name,
+                    "num_cells": n_cells,
+                    "surface_mm2": f"{surf_mm2:.6f}" if surf_mm2 else "",
+                    "slice_depth_um": f"{slice_depth_um:.4f}" if slice_depth_um > 0 else "",
+                    "interslice_um": f"{interslice_um:.4f}" if interslice_um > 0 else "0.0000",
+                    "thickness_um": f"{thickness_um:.4f}" if thickness_um > 0 else "",
+                    "concentration_cells_per_mm2": f"{concentration:.4f}" if concentration != "" else "",
+                    "cell_volume_mm3": f"{cell_volume_mm3:.6f}" if cell_volume_mm3 != "" else "",
+                    "extrapolated_absolute_cells": f"{extrapolated:.2f}" if extrapolated != "" else "",
+                })
+            continue
+
+        # --- Whole-section fallback (no region mask available) ---
+        area_mm2 = 0.0
+        if pixel_size_um > 0 and image_w > 0 and image_h > 0:
+            px_mm2 = (pixel_size_um / 1000.0) ** 2
+            area_mm2 = image_w * image_h * px_mm2
+        concentration = (result.num_cells / area_mm2) if area_mm2 > 0 else ""
+        cell_volume_mm3 = (area_mm2 * thickness_um / 1e3) if (area_mm2 > 0 and thickness_um > 0) else ""
+        rows.append({
+            "scope": "whole_section",
+            "image": result.image,
+            "region_id": "",
+            "region_name": "",
+            "num_cells": result.num_cells,
+            "surface_mm2": f"{area_mm2:.6f}" if area_mm2 else "",
+            "slice_depth_um": f"{slice_depth_um:.4f}" if slice_depth_um > 0 else "",
+            "interslice_um": f"{interslice_um:.4f}" if interslice_um > 0 else "0.0000",
+            "thickness_um": f"{thickness_um:.4f}" if thickness_um > 0 else "",
+            "concentration_cells_per_mm2": f"{concentration:.4f}" if concentration != "" else "",
+            "cell_volume_mm3": f"{cell_volume_mm3:.6f}" if cell_volume_mm3 != "" else "",
+            "extrapolated_absolute_cells": "",
+        })
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "scope", "image", "region_id", "region_name",
+            "num_cells", "surface_mm2",
+            "slice_depth_um", "interslice_um", "thickness_um",
+            "concentration_cells_per_mm2", "cell_volume_mm3",
+            "extrapolated_absolute_cells",
+        ])
+        for row in rows:
+            writer.writerow([
+                row["scope"], row["image"], row["region_id"], row["region_name"],
+                row["num_cells"], row["surface_mm2"],
+                row["slice_depth_um"], row["interslice_um"], row["thickness_um"],
+                row["concentration_cells_per_mm2"], row["cell_volume_mm3"],
+                row["extrapolated_absolute_cells"],
+            ])
+        writer.writerow([])
+        writer.writerow([
+            "TOTAL", "", "", "",
+            sum(r["num_cells"] for r in rows), "",
+            "", "", "", "", "", "",
+        ])
+
 def _reader_thread(stream, out_queue: queue.Queue[str]) -> None:
     """Reader Thread (usage interne).
     
@@ -912,6 +1063,9 @@ def run_quantification(
     refresh_images_cb: Callable[[], Iterable[str | Path]] | None = None,
     input_complete_cb: Callable[[], bool] | None = None,
     poll_interval_seconds: float = 1.5,
+    slice_depth_um: float = 0.0,
+    interslice_um: float = 0.0,
+    region_contexts: dict[str | Path, dict] | None = None,
 ) -> QuantificationResult:
     """
     Run QuPath cell quantification with two passes (dark + light background).
@@ -1171,6 +1325,22 @@ def run_quantification(
                     pass
 
     _write_summary_csv(summary_csv, results)
+
+    # ------------------------------------------------------------------
+    # Desired volumetric / absolute / extrapolated CSV.
+    # thickness_um = slice_depth_um + interslice_um (user-defined).
+    # Region-aware when region_contexts supplies a warped atlas mask per
+    # image; otherwise a whole-section estimate is emitted from the image's
+    # own physical area (pixel size x dims).
+    # ------------------------------------------------------------------
+    thickness_um = float(slice_depth_um) + float(interslice_um)
+    volumetric_csv = output_root / "cell_quantification_volumetric.csv"
+    _write_volumetric_csv(
+        volumetric_csv, results, thickness_um,
+        slice_depth_um=float(slice_depth_um),
+        interslice_um=float(interslice_um),
+        region_contexts=region_contexts,
+    )
 
     total = len(processed)
     successful = sum(1 for r in results if r.status == "success")

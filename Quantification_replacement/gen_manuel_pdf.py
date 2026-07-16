@@ -1,9 +1,9 @@
-"""Genere un manuel utilisateur PDF (francais, simple, non technique)
-expliquant comment utiliser les 4 fenetres de l'application Quantification.
+"""Generate a user manual PDF (English, simple, non-technical)
+explaining how to use the 4 windows of the Quantification application.
 
-Usage :
-    .venv\Scripts\python gen_manuel_pdf.py
-Sortie : C:/Users/Lioba/Documents/Quantification/Manuel_Quantification.pdf
+Usage:
+    .venv\\Scripts\\python gen_manuel_pdf.py
+Output: C:/Users/Lioba/Documents/Quantification/Manuel_Quantification.pdf
 """
 
 from pathlib import Path
@@ -20,7 +20,7 @@ from reportlab.platypus import (
 OUT = Path(r"C:\Users\Lioba\Documents\Quantification\Manuel_Quantification.pdf")
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
-# Couleurs douces (palette "accent" de l'appli)
+# Soft colors (app "accent" palette)
 BLEU = colors.HexColor("#2a6fb0")
 VERT = colors.HexColor("#1f9d55")
 ROUGE = colors.HexColor("#cc3333")
@@ -64,7 +64,7 @@ styles.add(ParagraphStyle(
     "CelluleH", parent=styles["Normal"], fontSize=9.5, leading=12.5,
     textColor=colors.white, fontName="Helvetica-Bold"))
 
-S = styles  # alias court
+S = styles  # short alias
 
 
 def par(texte, style="Corps"):
@@ -84,15 +84,15 @@ def btn_label(texte, rouge=False):
 
 
 def bloc_fenetre(num, nom, role, contenu, boutons):
-    """Construit un bloc complet pour une fenetre."""
+    """Build a complete block for one window."""
     flow = []
-    flow.append(Paragraph(f"Fenêtre {num} — {nom}", S["H2"]))
-    flow.append(par(f"<b>À quoi elle sert :</b> {role}"))
+    flow.append(Paragraph(f"Window {num} — {nom}", S["H2"]))
+    flow.append(par(f"<b>What it is for:</b> {role}"))
     for c in contenu:
         flow.append(c)
-    # Tableau des boutons
+    # Button table
     if boutons:
-        data = [[Paragraph("Bouton", S["CelluleH"]), Paragraph("Ce qu'il fait", S["CelluleH"])]]
+        data = [[Paragraph("Button", S["CelluleH"]), Paragraph("What it does", S["CelluleH"])]]
         for nom_btn, desc in boutons:
             data.append([btn_label(nom_btn), Paragraph(desc, S["Cellule"])])
         t = Table(data, colWidths=[42 * mm, 120 * mm])
@@ -113,211 +113,200 @@ def bloc_fenetre(num, nom, role, contenu, boutons):
 
 story = []
 
-# ----- Page de titre -----
-story.append(par("Manuel d'utilisation", "Titre"))
-story.append(par("Application <b>Quantification</b> — comptage de cellules sur coupes histologiques de rat", "SousTitre"))
+# ----- Title page -----
+story.append(par("User Manual", "Titre"))
+story.append(par("Application <b>Quantification</b> — counting cells on rat histological sections", "SousTitre"))
 story.append(HRFlowable(width="100%", thickness=1.2, color=BLEU, spaceAfter=8))
 story.append(par(
-    "Ce guide explique, sans termes techniques, comment se servir des 4 fenêtres "
-    "de l'application. L'application s'utilise dans l'ordre, de la fenêtre 1 à la "
-    "fenêtre 4, en cliquant sur le bouton <b>Next</b> (Suivant) en bas à droite de "
-    "chaque fenêtre. Prenez votre temps : à chaque étape, l'écran attend que vous "
-    "ayez fini avant de passer à la suite."))
+    "This guide explains, without technical terms, how to use the 4 windows "
+    "of the application. Use the app in order, from window 1 to window 4, by "
+    "clicking the <b>Next</b> button (bottom right) of each window. Take your "
+    "time: at each step, the screen waits for you to finish before moving on."))
 story.append(par(
-    "<b>En résumé, le parcours est :</b>"))
+    "<b>In short, the workflow is:</b>"))
 story.append(puce([
-    "<b>Fenêtre 1</b> — choisir les images à traiter (aperçu des coupes).",
-    "<b>Fenêtre 2</b> — dessiner la zone à mesurer et l'aligner sur l'atlas de référence.",
-    "<b>Fenêtre 3</b> — lancer le comptage automatique des cellules.",
-    "<b>Fenêtre 4</b> — vérifier le résultat à l'œil et l'enregistrer.",
+    "<b>Window 1</b> — choose the images to process (section preview).",
+    "<b>Window 2</b> — draw the region to measure and align it on the reference atlas.",
+    "<b>Window 3</b> — launch the automatic cell counting.",
+    "<b>Window 4</b> — check the result by eye and save it.",
 ]))
 story.append(par(
-    "Astuce générale : en bas de chaque fenêtre se trouvent les boutons de navigation "
-    "<b>Previous</b> (retour en arrière) et <b>Next</b> (fenêtre suivante). Si vous "
-    "vous trompez, vous pouvez toujours revenir en arrière.", "Note"))
+    "General tip: at the bottom of each window are the navigation buttons "
+    "<b>Previous</b> (go back) and <b>Next</b> (next window). If you make a "
+    "mistake, you can always go back.", "Note"))
 
-# ----- Fenêtre 1 -----
+# ----- Window 1 -----
 story += bloc_fenetre(
-    1, "Aperçu des coupes",
-    "elle charge vos images (fichiers .czi issues du microscope Zeiss) et vous permet "
-    "de les regarder avant de commencer. C'est le point de départ.",
+    1, "Section preview",
+    "it loads your images (.czi files from the Zeiss microscope) and lets you "
+    "look at them before you start. This is the starting point.",
     [
-        par("Sur cette fenêtre, vous voyez :"),
+        par("On this window you see:"),
         puce([
-            "<b>À gauche</b> : la liste de vos fichiers .czi et deux petites cases à cocher pour "
-            "indiquer où ils se trouvent (dans le dossier « Input » du programme, ou dans un "
-            "autre dossier de votre choix).",
-            "<b>En haut à gauche de la liste</b> : un champ « Slice depth (µm) » où vous pouvez "
-            "indiquer l'épaisseur de la coupe en micromètres (la valeur par défaut est 40).",
-            "<b>À droite</b> : la grande image d'aperçu de la coupe sélectionnée.",
+            "<b>On the left</b>: the list of your .czi files and two small checkboxes to "
+            "say where they are (in the program's « Input » folder, or in another "
+            "folder of your choice).",
+            "<b>Top-left of the list</b>: a « Slice depth (µm) » field where you can "
+            "enter the section thickness in micrometers (default is 40).",
+            "<b>On the right</b>: the large preview image of the selected section.",
         ]),
-        par("<b>Comment faire :</b>"),
+        par("<b>How to do it:</b>"),
         puce([
-            "Cliquez sur le nom d'un fichier dans la liste à gauche : son aperçu apparaît à droite.",
-            "Si une coupe est composée de plusieurs « tranches », utilisez les boutons "
-            "<b>Précédant</b> / <b>Suivant</b> (sous l'aperçu) pour naviguer entre elles.",
-            "L'image peut mettre quelques secondes à apparaître : une conversion est lancée "
-            "automatiquement en arrière-plan. Le message « Conversion en cours... » s'efface "
-            "quand l'image est prête.",
+            "Click a file name in the left list: its preview appears on the right.",
+            "If a section is made of several « slices », use the <b>Previous</b> / "
+            "<b>Next</b> buttons (under the preview) to move between them.",
+            "The image may take a few seconds to appear: a conversion runs "
+            "automatically in the background. The « Converting... » message disappears "
+            "when the image is ready.",
         ]),
-        par("Quand vous avez choisi la coupe à traiter, cliquez sur <b>Next</b> en bas à droite "
-            "pour passer à la fenêtre suivante.", "Note"),
+        par("When you have chosen the section to process, click <b>Next</b> (bottom "
+            "right) to go to the next window.", "Note"),
     ],
     [
-        ("Next", "Passe à la fenêtre 2 (masque). C'est le bouton principal de cette fenêtre."),
-        ("Précédant / Suivant", "Permettent de naviguer entre les tranches d'une même coupe, sous l'aperçu."),
-        (".czi dans le dossier Input / .czi dans un autre dossier", "Deux cases à cocher pour dire où se trouvent vos fichiers. La seconde ouvre un choix de dossier."),
+        ("Next", "Goes to window 2 (mask). This is the main button of this window."),
+        ("Previous / Next", "Navigate between the slices of the same section, under the preview."),
+        (".czi in the Input folder / .czi in another folder", "Two checkboxes to say where your files are. The second opens a folder chooser."),
     ],
 )
 
-# ----- Fenêtre 2 -----
+# ----- Window 2 -----
 story += bloc_fenetre(
-    2, "Dessin du masque et alignement",
-    "elle affiche 4 images en même temps (en carré 2×2) pour vous aider à délimiter "
-    "la zone à mesurer et à l'aligner sur l'atlas de référence du rat.",
+    2, "Mask drawing and alignment",
+    "it shows 4 images at once (in a 2×2 square) to help you outline the "
+    "region to measure and align it on the rat reference atlas.",
     [
-        par("Les 4 images affichées (une dans chaque coin) :"),
+        par("The 4 images shown (one in each corner):"),
         puce([
-            "<b>Haut-gauche (MRI)</b> : l'image de référence de l'atlas. Une barre coulissante "
-            "(le « slider ») en dessous permet de choisir la profondeur de la coupe.",
-            "<b>Haut-droit (Histology)</b> : votre coupe histologique à mesurer.",
-            "<b>Bas-gauche (Atlas)</b> : l'atlas de référence aligné.",
-            "<b>Bas-droit (Alignment)</b> : le résultat de l'alignement, mis à jour au fur et à mesure.",
+            "<b>Top-left (MRI)</b>: the atlas reference image. A slider below lets you "
+            "choose the section depth.",
+            "<b>Top-right (Histology)</b>: your histological section to measure.",
+            "<b>Bottom-left (Atlas)</b>: the aligned reference atlas.",
+            "<b>Bottom-right (Alignment)</b>: the alignment result, updated as you go.",
         ]),
-        par("<b>Le but ici est de poser des points de repère</b> pour aligner vos images. "
-            "Voici la marche à suivre :"),
+        par("<b>The goal here is to place landmark points</b> to align your images. "
+            "Here is the procedure:"),
         puce([
-            "Cliquez sur <b>Placer des marqueurs</b> (le bouton vire au vert) : votre curseur "
-            "devient une croix.",
-            "Cliquez sur au moins <b>2 points</b> dans l'image du haut-gauche (MRI), puis sur "
-            "les <b>mêmes points</b> dans l'image du haut-droit (Histologie). Les points sont "
-            "numérotés dans l'ordre.",
-            "Si vous vous trompez, cliquez sur <b>Annuler le point</b> pour retirer le dernier "
-            "point posé.",
-            "Quand vos points sont bien placés, cliquez sur <b>Replacer le masque</b> : "
-            "l'image du bas-droite (Alignment) se met à jour.",
-            "Pour mieux voir une image, utilisez la <b>molette de la souris</b> pour zoomer, ou "
-            "cliquez avec le <b>bouton du milieu</b> de la souris pour faire glisser (déplacer) "
-            "l'image. <b>Réinitialiser le zoom</b> remet tout à la taille normale.",
+            "Click <b>Place markers</b> (the button turns green): your cursor becomes a cross.",
+            "Click at least <b>2 points</b> in the top-left image (MRI), then on the "
+            "<b>same points</b> in the top-right image (Histology). Points are numbered in order.",
+            "If you make a mistake, click <b>Cancel point</b> to remove the last point placed.",
+            "When your points are well placed, click <b>Replace mask</b>: the bottom-right "
+            "image (Alignment) updates.",
+            "To see an image better, use the <b>mouse wheel</b> to zoom, or click with the "
+            "<b>middle mouse button</b> and drag to move the image. <b>Reset zoom</b> "
+            "returns everything to normal size.",
         ]),
-        par("<b>Pour passer à la coupe suivante :</b> quand le masque vous convient, cliquez sur "
-            "<b>Valider la coupe</b>. L'application enregistre votre travail et passe à la coupe "
-            "suivante toute seule. S'il n'y a plus de coupe, le message « Coupe validée » "
-            "s'affiche.", "Note"),
-        par("Si vous avez validé une coupe par erreur, cliquez sur <b>Annuler la validation</b> "
-            "pour revenir à la coupe précédente.", "Note"),
+        par("<b>To go to the next section:</b> when the mask suits you, click "
+            "<b>Validate slice</b>. The app saves your work and moves to the next section "
+            "on its own. If there is no more section, the « Slice validated » message appears.", "Note"),
+        par("If you validated a section by mistake, click <b>Cancel validation</b> "
+            "to go back to the previous section.", "Note"),
     ],
     [
-        ("Previous", "Retourne à la fenêtre 1 (aperçu)."),
-        ("Placer des marqueurs", "Active le mode « poser des points » (curseur en croix) pour aligner les images."),
-        ("Annuler le point", "Retire le dernier point posé."),
-        ("Replacer le masque", "Met à jour l'image d'alignement (bas-droite) avec les points posés."),
-        ("Réinitialiser le zoom", "Remet toutes les images à leur taille normale."),
-        ("Valider la coupe", "Enregistre le masque et passe à la coupe suivante (bouton vert)."),
-        ("Annuler la validation", "Revient à la coupe précédente si vous avez validé par erreur (bouton rouge)."),
-        ("Next", "Passe à la fenêtre 3 (quantification)."),
+        ("Previous", "Returns to window 1 (preview)."),
+        ("Place markers", "Activates « place points » mode (cross cursor) to align the images."),
+        ("Cancel point", "Removes the last point placed."),
+        ("Replace mask", "Updates the alignment image (bottom-right) with the placed points."),
+        ("Reset zoom", "Returns all images to their normal size."),
+        ("Validate slice", "Saves the mask and moves to the next section (green button)."),
+        ("Cancel validation", "Goes back to the previous section if you validated by mistake (red button)."),
+        ("Next", "Goes to window 3 (quantification)."),
     ],
 )
 
-# ----- Fenêtre 3 -----
+# ----- Window 3 -----
 story += bloc_fenetre(
-    3, "Quantification (comptage des cellules)",
-    "elle lance le comptage automatique des cellules (noyaux) dans vos coupes, à "
-    "l'aide du logiciel QuPath. Vous n'avez quasiment rien à faire : c'est "
-    "l'ordinateur qui travaille.",
+    3, "Quantification (cell counting)",
+    "it launches the automatic counting of cells (nuclei) in your sections, "
+    "using the QuPath software. You have almost nothing to do: the computer works.",
     [
-        par("Sur cette fenêtre, vous voyez :"),
+        par("On this window you see:"),
         puce([
-            "<b>En haut</b> : le nombre d'images détectées et leur emplacement (source JPEG 4x).",
-            "<b>Une zone « Progression »</b> avec deux barres (avancement global et avancement de "
-            "l'image en cours) et des messages d'état.",
-            "<b>Une zone « Journal / triggers »</b> : c'est le compte-rendu automatique du "
-            "comptage, pas besoin de le lire en détail.",
-            "<b>À droite</b> : la prévisualisation du dernier masque (les cellules détectées) "
-            "trouvées.",
+            "<b>At the top</b>: the number of images detected and their location (4x JPEG source).",
+            "<b>A « Progress » area</b> with two bars (overall progress and current-image "
+            "progress) and status messages.",
+            "<b>A « Log / triggers » area</b>: the automatic report of the counting; no need "
+            "to read it in detail.",
+            "<b>On the right</b>: the preview of the last detected mask (the cells found).",
         ]),
-        par("<b>Comment faire :</b>"),
+        par("<b>How to do it:</b>"),
         puce([
-            "Cliquez sur <b>Start quantification</b> (bouton vert) pour lancer le comptage.",
-            "Attendez : les barres de progression avancent toutes seules. Le nombre de cellules "
-            "comptées s'affiche en bas (« Dernier résultat : X cellule(s) »).",
-            "À la fin, le message « Terminé : X cellule(s) » apparaît en haut.",
-            "Si aucune image n'est trouvée, un message vous rappelle de d'abord faire les "
-            "fenêtres 1 et 2.",
+            "Click <b>Start quantification</b> (green button) to launch the counting.",
+            "Wait: the progress bars advance on their own. The number of cells counted "
+            "shows at the bottom (« Last result: X cell(s) »).",
+            "At the end, the « Done: X cell(s) » message appears at the top.",
+            "If no image is found, a message reminds you to first do windows 1 and 2.",
         ]),
-        par("Le comptage peut durer plusieurs minutes selon le nombre d'images. Ne fermez pas la "
-            "fenêtre ; vous pouvez suivre l'avancement grâce aux barres.", "Note"),
+        par("Counting can take several minutes depending on the number of images. Do not "
+            "close the window; you can follow progress with the bars.", "Note"),
     ],
     [
-        ("Previous", "Retourne à la fenêtre 2 (masque)."),
-        ("Start quantification", "Lance le comptage automatique des cellules (bouton vert)."),
-        ("Next", "Passe à la fenêtre 4 (validation) une fois le comptage terminé."),
+        ("Previous", "Returns to window 2 (mask)."),
+        ("Start quantification", "Launches the automatic cell counting (green button)."),
+        ("Next", "Goes to window 4 (validation) once counting is done."),
     ],
 )
 
-# ----- Fenêtre 4 -----
+# ----- Window 4 -----
 story += bloc_fenetre(
-    4, "Validation et sauvegarde",
-    "elle permet de vérifier à l'œil le résultat du comptage, de le corriger si "
-    "besoin, et d'enregistrer tous les résultats (images + tableaux CSV).",
+    4, "Validation and saving",
+    "it lets you check the counting result by eye, correct it if needed, "
+    "and save all results (images + CSV tables).",
     [
-        par("Sur cette fenêtre, vous voyez :"),
+        par("On this window you see:"),
         puce([
-            "<b>Au centre</b> : l'aperçu de la coupe, avec les régions colorées et les cellules "
-            "repérées (points jaunes).",
-            "<b>À droite</b> : une barre verticale « Z » pour faire défiler les tranches de la "
-            "coupe, et la colonne de boutons.",
-            "<b>En bas de l'aperçu</b> : un texte récapitulatif (coupe en cours, nombre de cellules…).",
+            "<b>In the center</b>: the section preview, with the colored regions and the "
+            "detected cells (yellow dots).",
+            "<b>On the right</b>: a vertical « Z » bar to scroll through the section slices, "
+            "and the column of buttons.",
+            "<b>At the bottom of the preview</b>: a summary text (current section, cell count…).",
         ]),
-        par("<b>Comment faire :</b>"),
+        par("<b>How to do it:</b>"),
         puce([
-            "Naviguez entre les coupes avec <b>Lame précédente</b> / <b>Lame suivante</b>.",
-            "Faites défiler les tranches avec la barre <b>Z</b> à droite.",
-            "Cliquez sur <b>Afficher le diagramme</b> pour voir un graphique (barres) du nombre "
-            "de cellules par région au lieu de l'image. Recliquez pour revenir à l'image.",
-            "Regardez si le comptage vous semble correct. Si une coupe est mauvaise, cliquez sur "
-            "<b>Rejeter la lame</b> : elle sera recomptée automatiquement.",
-            "Quand tout vous convient, cliquez sur <b>Valider la lame</b> ou sur "
-            "<b>Sauvegarder</b> pour enregistrer.",
+            "Navigate between sections with <b>Previous slide</b> / <b>Next slide</b>.",
+            "Scroll through slices with the <b>Z</b> bar on the right.",
+            "Click <b>Show diagram</b> to see a bar chart of cells per region instead of the "
+            "image. Click again to return to the image.",
+            "Check if the count looks correct. If a section is bad, click <b>Reject slide</b>: "
+            "it will be re-counted automatically.",
+            "When everything suits you, click <b>Validate slide</b> or <b>Save</b> to record.",
         ]),
-        par("Différence entre les boutons de sauvegarde : <b>Sauvegarder</b> enregistre dans le "
-            "dossier « output » du programme (avec la date et l'heure). <b>Sauvegarder vers...</b> "
-            "vous laisse choisir vous-même le dossier de destination. <b>Valider la lame</b> "
-            "enregistre dans un dossier « Validation ».", "Note"),
-        par("Le bouton <b>Next</b> de cette dernière fenêtre ferme simplement l'application.", "Note"),
+        par("Difference between the save buttons: <b>Save</b> records into the program's "
+            "« output » folder (with date and time). <b>Save to...</b> lets you choose the "
+            "destination folder yourself. <b>Validate slide</b> records into a « Validation » "
+            "folder.", "Note"),
+        par("The <b>Next</b> button of this last window simply closes the application.", "Note"),
     ],
     [
-        ("Previous", "Retourne à la fenêtre 3 (quantification)."),
-        ("Lame précédente / Lame suivante", "Passent d'une coupe à l'autre."),
-        ("Afficher le diagramme", "Bascule entre l'image et le graphique (nombre de cellules par région)."),
-        ("Valider la lame", "Enregistre la coupe validée dans le dossier « Validation » (bouton vert)."),
-        ("Sauvegarder", "Enregistre les résultats dans le dossier « output » du programme."),
-        ("Sauvegarder vers...", "Ouvre un choix de dossier pour enregistrer où vous voulez."),
-        ("Rejeter la lame", "Recompte automatiquement la coupe (bouton rouge)."),
-        ("Next", "Dernière fenêtre : ferme l'application."),
+        ("Previous", "Returns to window 3 (quantification)."),
+        ("Previous slide / Next slide", "Move from one section to another."),
+        ("Show diagram", "Toggles between the image and the chart (cells per region)."),
+        ("Validate slide", "Saves the validated section into the « Validation » folder (green button)."),
+        ("Save", "Saves the results into the program's « output » folder."),
+        ("Save to...", "Opens a folder chooser to save wherever you want."),
+        ("Reject slide", "Re-counts the section automatically (red button)."),
+        ("Next", "Last window: closes the application."),
     ],
 )
 
-# ----- Aide rapide -----
-story.append(Paragraph("Aide rapide et dépannage", S["H2"]))
-story.append(par("Quelques soucis fréquents et leurs solutions :"))
+# ----- Quick help -----
+story.append(Paragraph("Quick help and troubleshooting", S["H2"]))
+story.append(par("A few common issues and their solutions:"))
 aide = [
-    [Paragraph("Symptôme", S["CelluleH"]), Paragraph("Que faire", S["CelluleH"])],
-    [Paragraph("L'aperçu reste vide / « Conversion en cours... »", S["Cellule"]),
-     Paragraph("Attendez quelques secondes : la conversion des .czi est automatique. "
-               "Sinon, vérifiez que vos fichiers sont bien dans le dossier choisi (fenêtre 1).", S["Cellule"])],
-    [Paragraph("Fenêtre 3 : « Aucune image » au lancement", S["Cellule"]),
-     Paragraph("Faites d'abord les fenêtres 1 et 2 : les images doivent avoir été converties "
-               "et les coupes validées avant de pouvoir compter les cellules.", S["Cellule"])],
-    [Paragraph("Fenêtre 4 : « Aucune lame disponible »", S["Cellule"]),
-     Paragraph("Lancez les fenêtres 2 et 3 avant la fenêtre 4. Les résultats doivent exister "
-               "pour être validés.", S["Cellule"])],
-    [Paragraph("Je me suis trompé de coupe / de point", S["Cellule"]),
-     Paragraph("Utilisez <b>Previous</b> / <b>Next</b> pour revenir en arrière, ou "
-               "<b>Annuler la validation</b> / <b>Annuler le point</b> selon la fenêtre.", S["Cellule"])],
-    [Paragraph("Je veux repartir de zéro sur un comptage", S["Cellule"]),
-     Paragraph("Dans la fenêtre 4, utilisez <b>Rejeter la lame</b> pour recomptage automatique "
-               "d'une coupe.", S["Cellule"])],
+    [Paragraph("Symptom", S["CelluleH"]), Paragraph("What to do", S["CelluleH"])],
+    [Paragraph("The preview stays empty / « Converting... »", S["Cellule"]),
+     Paragraph("Wait a few seconds: the .czi conversion is automatic. "
+               "Otherwise, check that your files are in the chosen folder (window 1).", S["Cellule"])],
+    [Paragraph("Window 3: « No image » at launch", S["Cellule"]),
+     Paragraph("Do windows 1 and 2 first: the images must have been converted "
+               "and the sections validated before cells can be counted.", S["Cellule"])],
+    [Paragraph("Window 4: « No slide available »", S["Cellule"]),
+     Paragraph("Run windows 2 and 3 before window 4. Results must exist to be validated.", S["Cellule"])],
+    [Paragraph("I picked the wrong section / point", S["Cellule"]),
+     Paragraph("Use <b>Previous</b> / <b>Next</b> to go back, or "
+               "<b>Cancel validation</b> / <b>Cancel point</b> depending on the window.", S["Cellule"])],
+    [Paragraph("I want to restart a count from zero", S["Cellule"]),
+     Paragraph("In window 4, use <b>Reject slide</b> for automatic re-counting of a section.", S["Cellule"])],
 ]
 t_aide = Table(aide, colWidths=[60 * mm, 102 * mm])
 t_aide.setStyle(TableStyle([
@@ -331,18 +320,18 @@ t_aide.setStyle(TableStyle([
 ]))
 story.append(t_aide)
 story.append(Spacer(1, 8))
-story.append(par("Rappel de l'ordre des fenêtres : "
-                 "<b>1. Aperçu → 2. Masque → 3. Quantification → 4. Validation</b>. "
-                 "Suivez ce cheminement et chaque étape sera naturelle.", "Note"))
+story.append(par("Reminder of the window order: "
+                 "<b>1. Preview → 2. Mask → 3. Quantification → 4. Validation</b>. "
+                 "Follow this path and each step will feel natural.", "Note"))
 
 doc = SimpleDocTemplate(
     str(OUT), pagesize=A4,
     leftMargin=18 * mm, rightMargin=18 * mm,
     topMargin=16 * mm, bottomMargin=16 * mm,
-    title="Manuel d'utilisation — Quantification",
+    title="User Manual — Quantification",
     author="Assistant Hermes",
 )
 
 doc.build(story)
-print(f"PDF genere : {OUT}")
-print(f"Taille : {OUT.stat().st_size} octets")
+print(f"PDF generated: {OUT}")
+print(f"Size: {OUT.stat().st_size} bytes")

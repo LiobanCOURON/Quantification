@@ -1,7 +1,7 @@
-"""Conversion thread-safe .czi -> jpeg pour les pipelines Window2/Window3.
+"""Thread-safe .czi -> jpeg conversion for the Window2/Window3 pipelines.
 
-Réutilise convert_czi_to_jpeg.convert_one_file. À lancer dans des threads daemon
-(depuis le main thread) car Tkinter n'est pas thread-safe.
+Reuses convert_czi_to_jpeg.convert_one_file. Run in daemon threads
+(from the main thread) because Tkinter is not thread-safe.
 """
 import threading
 from pathlib import Path
@@ -53,11 +53,11 @@ def convert_folder_to_jpeg(folder, output_dir, downsample, quality=95, log_prefi
 
 
 def convert_czi_to_png(czi_folder_path, base_output_dir):
-    """20x conversion pour le pipeline Window2 (alignement/masque).
+    """20x conversion for the Window2 pipeline (alignment/mask).
 
-    NB: convert_one_file ajoute deja 'downsampled<factor>_jpeg' a output_dir,
-    donc on passe base_output_dir tel quel (sans JPEG_OUTPUT_SUBDIR) pour
-    ecrire dans <base>/output/downsampled20_jpeg (lu par le scanner de ROI).
+    NB: convert_one_file already appends 'downsampled<factor>_jpeg' to output_dir,
+    so we pass base_output_dir as-is (without JPEG_OUTPUT_SUBDIR) to
+    write into <base>/output/downsampled20_jpeg (read by the ROI scanner).
     """
     convert_folder_to_jpeg(
         czi_folder_path,
