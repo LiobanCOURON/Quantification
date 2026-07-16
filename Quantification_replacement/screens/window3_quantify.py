@@ -207,6 +207,7 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         Args:
             mask_path (Any): Chemin vers le fichier.
         """
+        self.current_preview_path = mask_path
         if self.preview_label is None or not self.preview_label.winfo_exists():
             return
         if not mask_path or not os.path.exists(mask_path):
@@ -223,16 +224,18 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         try:
             img = Image.open(mask_path).convert("RGB")
             img = self._zoom_crop(img)
-            # Fill the canvas with the cropped (zoomed) region instead of
-            # shrinking it to fit (which left a small floating image).
-            img = img.resize((max(1, max_w), max(1, max_h)), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(img)
+            # Aspect-preserving fit into the label box (no deformation).
+            photo = self._fit_photo(img, max_w, max_h)
         except Exception as exc:
             print(f"[window3] cannot load preview {mask_path}: {exc}")
             photo = None
         if photo is not None:
             self.preview_photo = photo
             self.preview_label.config(image=photo, text="")
+
+    def _refresh_preview(self):
+        """Re-render the current mask preview (called by zoom/pan handlers)."""
+        self._set_preview(getattr(self, "current_preview_path", None))
 
     def _reset_progress(self):
         """Reset Progress (usage interne)."""

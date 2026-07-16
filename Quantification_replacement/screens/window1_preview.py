@@ -289,11 +289,8 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
         try:
             base_img = Image.open(str(img_path)).convert("RGB")
             base_img = self._zoom_crop(base_img)
-            # Fill the canvas with the cropped (zoomed) region instead of
-            # shrinking it to fit (which left a small floating image).
-            base_img = base_img.resize((max(1, disp_w), max(1, disp_h)),
-                                       Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(base_img)
+            # Aspect-preserving fit into the label box (no deformation).
+            photo = self._fit_photo(base_img, disp_w, disp_h)
         except Exception as exc:
             print(f"[window1] cannot load preview {img_path}: {exc}")
             photo = None

@@ -4,7 +4,7 @@ Voir le README pour l'architecture generale.
 """
 import tkinter as tk
 from tkinter import ttk
-from PIL import Image
+from PIL import Image, ImageTk
 
 from app.theme import FONT, SMALL_FONT, CLICK_BOXES_COLOR, BG_COLOR, FG_COLOR
 
@@ -35,6 +35,35 @@ class PreviewZoomPanMixin:
         self.zoom_state = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
         self.pan_state = {}
         self.viewport = (0.0, 0.0, 1.0, 1.0)
+
+    def _fit_photo(self, pil_img, box_w, box_h):
+        """Aspect-preserving resize of ``pil_img`` into a ``box_w``×``box_h``
+        canvas, centered on white (no non-uniform stretch / deformation).
+
+        Returns an ``ImageTk.PhotoImage`` ready to assign to ``preview_label``.
+        """
+        box_w = max(1, int(box_w))
+        box_h = max(1, int(box_h))
+        iw, ih = pil_img.size
+        if iw <= 0 or ih <= 0:
+            return None
+        scale = min(box_w / iw, box_h / ih)
+        if scale <= 0:
+            return None
+        nw, nh = max(1, int(round(iw * scale))), max(1, int(round(ih * scale)))
+        resized = pil_img.resize((nw, nh), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", (box_w, box_h), (255, 255, 255))
+        canvas.paste(resized, ((box_w - nw) // 2, (box_h - nh) // 2))
+        return ImageTk.PhotoImage(canvas)
+
+    def _refresh_preview(self):
+        """Re-render the preview into ``preview_label``.
+
+        Hosts override this with their own render path. The default is a safe
+        no-op so a host that forgets to implement it does not crash the
+        wheel/pan handlers (which call this after every zoom/pan update).
+        """
+        return
 
     def _zoom_viewport(self):
         """Compute the normalized crop rectangle for the current zoom/center.
