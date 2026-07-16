@@ -61,6 +61,7 @@ class Window2Screen(BaseScreen):
         self.tl_scale = None
         self.tl_value_label = None
         self.marker_active = False
+        self.drag_state = None
         self.marker_points = {"tl": [], "tr": []}
         self.marker_order = []
         self.marker_buttons = {}
@@ -115,6 +116,7 @@ class Window2Screen(BaseScreen):
             "------------------------------------------------\n\n"
             "FOUR PANES (MRI / Histology / Atlas / Alignment)\n"
             "  • Click on a pane to place a marker (aligned point).\n"
+            "  • Drag an existing marker with the left mouse button to move it.\n"
             "  • Mouse wheel : zoom a pane in / out, centered on cursor.\n"
             "  • Middle mouse button (drag) : pan a pane when zoomed.\n"
             "  • 'Reset zoom' : reset all panes to fit.\n\n"
@@ -200,9 +202,12 @@ class Window2Screen(BaseScreen):
         br_label.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
         self.labels["br"] = br_label
 
-        # Bindings clic / zoom / pan.
-        self.labels["tl"].bind("<Button-1>", lambda e: self._on_tl_image_click(e))
-        self.labels["tr"].bind("<Button-1>", lambda e: self._on_tr_image_click(e))
+        # Bindings clic / zoom / pan / drag-dots.
+        self.labels["tl"].bind("<Button-1>", lambda e: self._on_image_button1("tl", e))
+        self.labels["tr"].bind("<Button-1>", lambda e: self._on_image_button1("tr", e))
+        for qkey in ("tl", "tr"):
+            self.labels[qkey].bind("<B1-Motion>", lambda e, k=qkey: self._on_image_drag_motion(k, e))
+            self.labels[qkey].bind("<ButtonRelease-1>", lambda e, k=qkey: self._on_image_drag_end(k, e))
         for qkey in ("tl", "tr", "bl", "br"):
             lbl = self.labels[qkey]
             lbl.bind("<MouseWheel>", lambda e, k=qkey: self._on_image_wheel(k, e))
@@ -341,29 +346,58 @@ class Window2Screen(BaseScreen):
         self.pending_atlas_update_id = self.root.after(
             250, lambda: self._load_atlas_images_for_depth(depth))
 
-    def _load_mask_overlay(self, max_w, max_h):
+    def _load_mask_overlay(self, max_w, max_h, base_size=None):
         """Load the atlas label image (= bottom-left canvas) cropped/zoomed to
-        the same viewport as the MRI, ready to blend over it.
+        the SAME viewport as the MRI, oriented to match the MRI, and returned
+        on a transparent canvas of exactly ``base_size`` so it composites 1:1
+        with the MRI under any zoom/pan.
 
         Args:
             max_w (Any): Parametre max_w.
             max_h (Any): Parametre max_h.
+            base_size (tuple|None): (w, h) of the MRI display image; the overlay
+                is fitted (preserving aspect) and centered into this exact size
+                using the SAME uniform scale/centering rule as the MRI, so the
+                two never drift apart during zoom or middle-mouse pan.
 
         Returns:
             Any: Resultat (PIL RGBA image or None).
         """
         if not self.current_atlas_path or not os.path.isfile(self.current_atlas_path):
             return None
-        mask_pil, _vp = self._load_zoomed_pil(self.current_atlas_path, max_w, max_h, "tl")
-        if mask_pil is None:
+        # Crop the atlas to the *same* normalized viewport the MRI uses, then
+        # orient it exactly like the MRI (rotate 90 CW to 12h + mirror L/R).
+        # Reusing the MRI viewport (instead of an independent fit + a non-uniform
+        # post-rotation stretch) is what keeps the overlay locked to the MRI.
+        vp = self.viewports.get("tl", (0.0, 0.0, 1.0, 1.0))
+        src = self._get_source("tl", self.current_atlas_path)
+        if src is None:
             return None
+        sw, sh = src.size
+        if sw <= 0 or sh <= 0:
+            return None
+        nx0, ny0, nx1, ny1 = vp
+        left = int(round(nx0 * sw))
+        upper = int(round(ny0 * sh))
+        right = max(left + 1, int(round(nx1 * sw)))
+        lower = max(upper + 1, int(round(ny1 * sh)))
+        cropped = src.crop((left, upper, right, lower))
         # The atlas label image is stored rotated 90 deg (pointing left / 9h)
         # off the MRI orientation; rotate 90 deg clockwise (ROTATE_270) so it
         # points up (12h), then mirror horizontally (FLIP_LEFT_RIGHT) so it
         # matches the MRI (atlas was left-right reversed vs the MRI).
-        mask_pil = mask_pil.transpose(Image.Transpose.ROTATE_270).transpose(
+        cropped = cropped.transpose(Image.Transpose.ROTATE_270).transpose(
             Image.Transpose.FLIP_LEFT_RIGHT)
-        return mask_pil
+        if cropped.mode != "RGBA":
+            cropped = cropped.convert("RGBA")
+        target = base_size if base_size is not None else (max_w, max_h)
+        fw, fh = get_img_dims(cropped.width, cropped.height, target[0], target[1])
+        resized = cropped.resize((fw, fh), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", target, (0, 0, 0, 0))
+        off_x = (target[0] - fw) // 2
+        off_y = (target[1] - fh) // 2
+        canvas.paste(resized, (off_x, off_y))
+        return canvas
 
     def _load_atlas_images_for_depth(self, depth):
         """Load atlas Images For Depth (usage interne).
@@ -575,11 +609,12 @@ class Window2Screen(BaseScreen):
         """
         if self.mask_opacity <= 0:
             return base_pil
-        mask = self._load_mask_overlay(max_w, max_h)
+        # Build the overlay on a transparent canvas of exactly base_pil.size
+        # (same viewport + same uniform fit/centering as the MRI) so it aligns
+        # 1:1 with the MRI — no independent fit and no post-rotation stretch.
+        mask = self._load_mask_overlay(max_w, max_h, base_size=base_pil.size)
         if mask is None:
             return base_pil
-        if mask.size != base_pil.size:
-            mask = mask.resize(base_pil.size, Image.Resampling.LANCZOS)
         if mask.mode != "RGBA":
             mask = mask.convert("RGBA")
         # Fade the (identical) atlas label image to the chosen visibility.
@@ -713,6 +748,94 @@ class Window2Screen(BaseScreen):
     def _on_tr_image_click(self, event):
         """On quadrant haut-droit (histologie) Image Click (usage interne)."""
         self._on_image_click("tr", event)
+
+    # ---- draggable markers (left-button hold + move) -----------------------
+    def _hit_test_marker(self, key, event):
+        """Return the index of the marker under the cursor, or None.
+
+        Replicates the pixel position used by `_draw_markers_zoomed`
+        (letterboxed image + normalized->viewport projection) and a small
+        tolerance around the drawn dot radius.
+        """
+        points = self.marker_points.get(key, [])
+        if not points:
+            return None
+        label = self.labels.get(key)
+        disp = self._displayed_image_size(key)
+        if label is None or disp is None:
+            return None
+        img_w, img_h = disp
+        if img_w <= 1 or img_h <= 1:
+            return None
+        label_w = label.winfo_width()
+        label_h = label.winfo_height()
+        offset_x = (label_w - img_w) // 2
+        offset_y = (label_h - img_h) // 2
+        px = event.x - offset_x
+        py = event.y - offset_y
+        if px < 0 or py < 0 or px >= img_w or py >= img_h:
+            return None
+        nx0, ny0, nx1, ny1 = self.viewports.get(key, (0.0, 0.0, 1.0, 1.0))
+        span_x = max(1e-6, nx1 - nx0)
+        span_y = max(1e-6, ny1 - ny0)
+        radius = max(4, min(img_w, img_h) // 35)
+        tol = radius + 4
+        for idx, (nx, ny) in enumerate(points):
+            vx = (nx - nx0) / span_x
+            vy = (ny - ny0) / span_y
+            cx = vx * img_w
+            cy = vy * img_h
+            if abs(px - cx) <= tol and abs(py - cy) <= tol:
+                return idx
+        return None
+
+    def _on_image_button1(self, key, event):
+        """Left-button press on a marker pane.
+
+        If the press lands on an existing dot, start dragging it (works
+        regardless of marker-placement mode). Otherwise fall back to the
+        existing click-to-place behaviour (only when marker mode is active).
+        """
+        if self.frame is None or not self.frame.winfo_exists():
+            return
+        hit = self._hit_test_marker(key, event)
+        if hit is not None:
+            self.drag_state = {"key": key, "index": hit}
+            lbl = self.labels.get(key)
+            if lbl is not None:
+                lbl.config(cursor="hand2")
+            return
+        self._on_image_click(key, event)
+
+    def _on_image_drag_motion(self, key, event):
+        """While dragging, move the captured dot to the cursor (usage interne)."""
+        ds = getattr(self, "drag_state", None)
+        if ds is None or ds.get("key") != key:
+            return
+        if self.frame is None or not self.frame.winfo_exists():
+            return
+        points = self.marker_points.get(key)
+        if points is None or ds["index"] >= len(points):
+            self.drag_state = None
+            return
+        src_nx, src_ny = self._screen_to_source_normalized(key, event)
+        if src_nx is None:
+            return
+        points[ds["index"]] = (
+            min(1.0, max(0.0, src_nx)),
+            min(1.0, max(0.0, src_ny)),
+        )
+        self._update_images()
+
+    def _on_image_drag_end(self, key, _event=None):
+        """End an in-progress dot drag and restore the cursor (usage interne)."""
+        if getattr(self, "drag_state", None) is None:
+            return
+        self.drag_state = None
+        lbl = self.labels.get(key)
+        if lbl is not None:
+            cursor = "crosshair" if self.marker_active else ""
+            lbl.config(cursor=cursor)
 
     def _on_image_wheel(self, key, event):
         """On Image Wheel (usage interne).

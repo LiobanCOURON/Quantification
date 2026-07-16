@@ -23,6 +23,8 @@ atlas_volumes.csv
 
 # --- Doublon historique non concerné par le refactoring ---
 ProjetQuantification.temp/
+ui_backup.py
+ui_original_full.py
 
 # --- Binaires / livrables (ignorés récursivement) ---
 *.czi

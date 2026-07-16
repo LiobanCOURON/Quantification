@@ -23,6 +23,62 @@ IRM_PATH = os.path.join(BASE_DIR, "Rat atlas", "WHS_SD_rat_T2star_v1.01.nii")
 ATLAS_PATH = os.path.join(BASE_DIR, "Rat atlas", "WHS_SD_rat_atlas_v4.nii")
 ATLAS_IMGS_DIR = os.path.join(BASE_DIR, "AtlasImgs")
 
+# Official ITK-SNAP label description file giving the RGB for each region.
+# Used to color the atlas slice with the real per-region colors instead of a
+# truncated categorical colormap (e.g. tab20, which only has 20 colors and
+# merges most regions into the same visual category).
+LABEL_FILE = os.path.join(BASE_DIR, "Rat atlas", "WHS_SD_rat_atlas_v4.label")
+
+
+def _load_atlas_label_colors(label_file=LABEL_FILE):
+    """Parse the ITK-SNAP .label file into a dense RGB lookup table.
+
+    Returns a (max_idx + 1, 3) uint8 array where index i holds the official
+    RGB color of atlas region i (label 0 / background defaults to black).
+    This mirrors mask_replacer._load_label_colors so the bottom-left atlas
+    preview shows exactly the same colors as the generated warped mask.
+    """
+    colors = {}
+    max_idx = 0
+    with open(label_file, "r", encoding="utf-8") as fh:
+        for line in fh:
+            raw = line.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            parts = raw.split()
+            if len(parts) < 4:
+                continue
+            try:
+                idx = int(parts[0])
+                r, g, b = int(parts[1]), int(parts[2]), int(parts[3])
+            except ValueError:
+                continue
+            colors[idx] = (r, g, b)
+            if idx > max_idx:
+                max_idx = idx
+    lut = np.zeros((max_idx + 1, 3), dtype=np.uint8)
+    for idx, (r, g, b) in colors.items():
+        lut[idx] = (r, g, b)
+    return lut
+
+
+# Dense RGB LUT loaded once from the atlas .label file (official colors).
+_ATLAS_LABEL_LUT = _load_atlas_label_colors()
+
+
+def _colorize_atlas_slice(atlas_slice):
+    """Color an integer atlas label slice with the official RGB table.
+
+    Args:
+        atlas_slice: 2D int array of region IDs (from labels[:, depth, :]).
+
+    Returns:
+        (H, W, 3) uint8 RGB array with each pixel set to its region color.
+        Unknown / out-of-range IDs fall back to black (background).
+    """
+    safe = np.clip(atlas_slice, 0, len(_ATLAS_LABEL_LUT) - 1)
+    return _ATLAS_LABEL_LUT[safe]
+
 
 def get_depth_range(image_path=IRM_PATH, atlas_path=ATLAS_PATH):
     """
@@ -117,7 +173,13 @@ def save_slices_as_images(coronal_slice, atlas_slice, depth, output_dir=ATLAS_IM
     coronal_filename, atlas_filename = get_slice_image_paths(depth, output_dir)
 
     plt.imsave(coronal_filename, coronal_slice.T, cmap="gray")
-    plt.imsave(atlas_filename, atlas_slice.T, cmap="tab20")
+
+    # Color the atlas slice with the official per-region RGB table (loaded from
+    # the .label file) instead of a truncated categorical colormap. This makes
+    # the preview match the colors used by the generated warped mask in
+    # mask_replacer.
+    atlas_rgb = _colorize_atlas_slice(atlas_slice)
+    Image.fromarray(atlas_rgb, mode="RGB").save(atlas_filename)
 
     # Fix images orientation by rotating them 180 degrees clockwise
     with Image.open(coronal_filename) as coronal_img:
