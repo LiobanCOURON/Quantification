@@ -8,13 +8,14 @@ from pathlib import Path
 
 import tkinter as tk
 from tkinter import messagebox, ttk
+from PIL import Image, ImageTk
 
 from app.base_screen import BaseScreen
 from app.theme import (
     BG_COLOR, FG_COLOR, SMALL_FONT, FONT, CLICK_BOXES_COLOR,
     ACCENT_COLOR_BLUE, ACCENT_COLOR_GREEN, ERROR_COLOR,
 )
-from app.image_utils import load_and_resize_image
+from app.common_widgets import PreviewZoomPanMixin
 from workers.czi_converter import (
     QUANTIFICATION_JPEG_OUTPUT_SUBDIR,
     _conversion_running as quantification_conversion_running,
@@ -24,7 +25,7 @@ from quantification_wrapper import discover_jpeg_images, run_quantification
 _W3_WARN_COLOR = "#b36b00"
 
 
-class Window3Screen(BaseScreen):
+class Window3Screen(BaseScreen, PreviewZoomPanMixin):
     """Window3screen.
     
     Attributs et methodes definis ci-dessous.
@@ -134,12 +135,22 @@ class Window3Screen(BaseScreen):
         self.preview_label = tk.Label(right, text="Le dernier masque détecté apparaîtra ici.",
                                       font=FONT, bg="white", fg="gray")
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        # Zoom + pan bindings (parity with Window 2 / Window 4).
+        self._init_zoom_pan()
+        self.preview_label.bind("<MouseWheel>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-4>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-5>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-2>", self._on_preview_pan_start)
+        self.preview_label.bind("<B2-Motion>", self._on_preview_pan_motion)
+        self.preview_label.bind("<ButtonRelease-2>", self._on_preview_pan_end)
 
         button_frame = tk.Frame(outer, bg=BG_COLOR, height=60)
         button_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=20)
         button_frame.pack_propagate(False)
         tk.Button(button_frame, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._go_prev).pack(side=tk.LEFT, pady=12)
+        tk.Button(button_frame, text="Reset zoom", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+                  command=self._reset_zoom).pack(side=tk.LEFT, padx=12, pady=12)
         self.start_button = tk.Button(button_frame, text="Start quantification", font=FONT,
                                       bg=ACCENT_COLOR_GREEN, fg=FG_COLOR,
                                       command=self._start_quantification)
@@ -187,7 +198,14 @@ class Window3Screen(BaseScreen):
         win_h = self.root.winfo_height() if self.root.winfo_height() > 100 else 600
         max_w = max(200, int(win_w * 0.42))
         max_h = max(180, int(win_h * 0.55))
-        photo = load_and_resize_image(mask_path, max_w, max_h)
+        try:
+            img = Image.open(mask_path).convert("RGB")
+            img = self._zoom_crop(img)
+            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+        except Exception as exc:
+            print(f"[window3] cannot load preview {mask_path}: {exc}")
+            photo = None
         if photo is not None:
             self.preview_photo = photo
             self.preview_label.config(image=photo, text="")
@@ -358,6 +376,8 @@ class Window3Screen(BaseScreen):
                     refresh_images_cb=lambda: discover_jpeg_images(input_root, recursive=True),
                     input_complete_cb=lambda: not quantification_conversion_running(),
                     poll_interval_seconds=1.5,
+                    slice_depth_um=float(getattr(self.state, "slice_depth_um", 0.0) or 0.0),
+                    interslice_um=float(getattr(self.state, "interslice_um", 0.0) or 0.0),
                 )
                 event_queue.put({"type": "worker_done", "result": result})
             except Exception as exc:

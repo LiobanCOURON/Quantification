@@ -7,20 +7,21 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
+from PIL import Image, ImageTk
 
 from app.base_screen import BaseScreen
 from app.theme import BG_COLOR, FG_COLOR, SMALL_FONT, FONT, CLICK_BOXES_COLOR
 from app.image_utils import load_and_resize_image
-from app.common_widgets import ScrollableList, FooterBar
+from app.common_widgets import ScrollableList, FooterBar, PreviewZoomPanMixin
 import convert_czi_to_jpeg
 
 PREVIEW_DOWNSAMPLE = 50
 TEMP_VIZU_SUBDIR = f"downsampled{PREVIEW_DOWNSAMPLE}_jpeg"
 
 
-class Window1Screen(BaseScreen):
+class Window1Screen(BaseScreen, PreviewZoomPanMixin):
     """Window1screen.
-    
+
     Attributs et methodes definis ci-dessous.
     """
     def __init__(self, app):
@@ -121,6 +122,14 @@ class Window1Screen(BaseScreen):
             right, text="Sélectionnez un .czi", font=FONT, bg="white", fg="gray"
         )
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        # Zoom + pan bindings (parity with Window 2 / Window 4).
+        self._init_zoom_pan()
+        self.preview_label.bind("<MouseWheel>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-4>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-5>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-2>", self._on_preview_pan_start)
+        self.preview_label.bind("<B2-Motion>", self._on_preview_pan_motion)
+        self.preview_label.bind("<ButtonRelease-2>", self._on_preview_pan_end)
 
         self.preview_status = tk.Label(right, text="", font=SMALL_FONT, bg=BG_COLOR, fg=FG_COLOR)
         self.preview_status.grid(row=1, column=0, sticky="ew")
@@ -131,6 +140,8 @@ class Window1Screen(BaseScreen):
                   command=self._prev_scene).pack(side=tk.LEFT, padx=8)
         tk.Button(nav, text="Suivant", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._next_scene).pack(side=tk.LEFT, padx=8)
+        tk.Button(nav, text="Reset zoom", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+                  command=self._reset_zoom).pack(side=tk.LEFT, padx=8)
 
         # Resize handler sur la frame (via le root, unbinding géré par BaseScreen).
         self.root.bind("<Configure>", self._on_configure)
@@ -237,7 +248,14 @@ class Window1Screen(BaseScreen):
             return
 
         avail_w, avail_h = self._get_preview_size()
-        photo = load_and_resize_image(str(img_path), avail_w, avail_h)
+        try:
+            base_img = Image.open(str(img_path)).convert("RGB")
+            base_img = self._zoom_crop(base_img)
+            base_img.thumbnail((avail_w, avail_h), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(base_img)
+        except Exception as exc:
+            print(f"[window1] cannot load preview {img_path}: {exc}")
+            photo = None
         if photo is not None:
             self.preview_photo = photo
             self.preview_label.config(image=photo, text="")
@@ -290,13 +308,13 @@ class Window1Screen(BaseScreen):
         """Prev Scene (usage interne)."""
         if self.scene_index > 0:
             self.scene_index -= 1
-            self._refresh_preview()
+            self._reset_zoom()
 
     def _next_scene(self):
         """Next Scene (usage interne)."""
         if self.scene_index < len(self.selected_scenes) - 1:
             self.scene_index += 1
-            self._refresh_preview()
+            self._reset_zoom()
 
     def _on_configure(self, event):
         """On Configure (usage interne)."""
