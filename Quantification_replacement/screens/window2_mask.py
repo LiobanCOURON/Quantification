@@ -376,16 +376,26 @@ class Window2Screen(BaseScreen):
         sw, sh = src.size
         if sw <= 0 or sh <= 0:
             return None
+        # IMPORTANT: ROTATE_270 + FLIP_LEFT_RIGHT is a *transpose* — it maps an
+        # atlas source pixel (x, y) to display (y, x). So the overlay's display
+        # X comes from the atlas source Y and display Y from source X. To have
+        # the overlay display the SAME (nx0, ny0, nx1, ny1) region as the MRI
+        # (and therefore pan/zoom in the same direction), we must crop the atlas
+        # source with the TRANSPOSED viewport: source X <- [ny0, ny1],
+        # source Y <- [nx0, nx1]. Cropping with the raw viewport instead makes
+        # the overlay show the transposed region and move perpendicular to the
+        # MRI during pan (e.g. pan right -> overlay slides down).
         nx0, ny0, nx1, ny1 = vp
-        left = int(round(nx0 * sw))
-        upper = int(round(ny0 * sh))
-        right = max(left + 1, int(round(nx1 * sw)))
-        lower = max(upper + 1, int(round(ny1 * sh)))
+        left = int(round(ny0 * sw))
+        upper = int(round(nx0 * sh))
+        right = max(left + 1, int(round(ny1 * sw)))
+        lower = max(upper + 1, int(round(nx1 * sh)))
         cropped = src.crop((left, upper, right, lower))
         # The atlas label image is stored rotated 90 deg (pointing left / 9h)
         # off the MRI orientation; rotate 90 deg clockwise (ROTATE_270) so it
         # points up (12h), then mirror horizontally (FLIP_LEFT_RIGHT) so it
-        # matches the MRI (atlas was left-right reversed vs the MRI).
+        # matches the MRI (atlas was left-right reversed vs the MRI). This pair
+        # is a transpose, which is why the crop above uses the transposed vp.
         cropped = cropped.transpose(Image.Transpose.ROTATE_270).transpose(
             Image.Transpose.FLIP_LEFT_RIGHT)
         if cropped.mode != "RGBA":
