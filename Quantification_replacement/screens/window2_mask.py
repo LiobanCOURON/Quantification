@@ -112,18 +112,34 @@ class Window2Screen(BaseScreen):
                  ).pack(side=tk.LEFT)
         add_help_button(
             header, "Window 2 — Help",
-            "WINDOW 2 — Mask placement + 2x2 alignment\n"
-            "------------------------------------------------\n\n"
-            "FOUR PANES (MRI / Histology / Atlas / Alignment)\n"
-            "  • Click on a pane to place a marker (aligned point).\n"
-            "  • Drag an existing marker with the left mouse button to move it.\n"
-            "  • Mouse wheel : zoom a pane in / out, centered on cursor.\n"
-            "  • Middle mouse button (drag) : pan a pane when zoomed.\n"
-            "  • 'Reset zoom' : reset all panes to fit.\n\n"
-            "ATLAS VALUE\n"
-            "  • Double-click the atlas value to edit it inline.\n\n"
-            "SLIDER (bottom)\n"
-            "  • Scrolls through the atlas levels.\n",
+            "WINDOW 2 — Mask placement + 2x2 alignment\\n"
+            "------------------------------------------------\\n\\n"
+            "FOUR PANES (MRI / Histology / Atlas / Alignment)\\n"
+            "  • Markers (dots) can be placed on the MRI and Histology\\n"
+            "    panes only (2 aligned points per pane).\\n"
+            "  • To PLACE a marker : click 'Place markers' first (toggles ON,\\n"
+            "    button turns blue), then click on the MRI or Histology pane.\\n"
+            "  • To MOVE a marker : press and hold the LEFT mouse button on an\\n"
+            "    existing dot and drag it to a new position (works whether or\\n"
+            "    not 'Place markers' mode is active).\\n"
+            "  • MOUSE WHEEL : zoom a pane in / out, centered on the cursor.\\n"
+            "  • MIDDLE MOUSE BUTTON (hold + drag) : pan a pane when zoomed.\\n"
+            "  • 'Reset zoom' : reset all four panes to fit-to-window.\\n\\n"
+            "ATLAS VALUE (top-left)\\n"
+            "  • Double-click the atlas value to edit it inline (Enter / click\\n"
+            "    away to confirm, Esc to cancel).\\n"
+            "  • The vertical 'Atlas overlay' slider fades the labeled atlas\\n"
+            "    mask over the MRI image (0% = hidden).\\n\\n"
+            "ATLAS SLIDER (bottom)\\n"
+            "  • Scrolls through the atlas levels.\\n\\n"
+            "BOTTOM BUTTONS\\n"
+            "  • 'Place markers' : toggle marker-placement mode ON/OFF.\\n"
+            "  • 'Cancel point' : remove the last marker you placed.\\n"
+            "  • 'Replace mask' : load a different mask for the current ROI.\\n"
+            "  • 'Validate slice' : save the aligned points for this ROI and\\n"
+            "    advance to the next one.\\n"
+            "  • 'Cancel validation' : discard the last validated ROI.\\n"
+            "  • 'Previous' / 'Next' : move between ROIs.\\n",
         )
 
         grid_frame = tk.Frame(outer, bg=BG_COLOR)
