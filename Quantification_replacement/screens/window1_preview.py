@@ -73,11 +73,11 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
             "RIGHT (preview)\n"
             "  • Mouse wheel : zoom in / out, centered on the cursor.\n"
             "  • Middle mouse button (drag) : pan the image when zoomed.\n"
-            "  • 'Reset zoom' button : return to fit-to-window.\\n"
-            "  • 'Previous' / 'Next' : move between ROI scenes.\\n\\n"
-            "FOOTER\\n"
-            "  • 'Next' (bottom-right) : continue to Window 2 (mask +\\n"
-            "    alignment) once you have previewed the ROIs you need.\\n",
+            "  • 'Reset zoom' button : return to fit-to-window.\n"
+            "  • 'Previous' / 'Next' : move between ROI scenes.\n\n"
+            "FOOTER\n"
+            "  • 'Next' (bottom-right) : continue to Window 2 (mask +\n"
+            "    alignment) once you have previewed the ROIs you need.\n",
         )
 
         main = tk.Frame(self.frame, bg=BG_COLOR)
