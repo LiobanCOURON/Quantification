@@ -11,6 +11,7 @@ import re
 import threading
 from pathlib import Path
 
+import numpy as np
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk, ImageDraw, ImageFont
@@ -354,6 +355,14 @@ class Window2Screen(BaseScreen):
         if not self.current_atlas_path or not os.path.isfile(self.current_atlas_path):
             return None
         mask_pil, _vp = self._load_zoomed_pil(self.current_atlas_path, max_w, max_h, "tl")
+        if mask_pil is None:
+            return None
+        # The atlas label image is stored rotated 90 deg (pointing left / 9h)
+        # off the MRI orientation; rotate 90 deg clockwise (ROTATE_270) so it
+        # points up (12h), then mirror horizontally (FLIP_LEFT_RIGHT) so it
+        # matches the MRI (atlas was left-right reversed vs the MRI).
+        mask_pil = mask_pil.transpose(Image.Transpose.ROTATE_270).transpose(
+            Image.Transpose.FLIP_LEFT_RIGHT)
         return mask_pil
 
     def _load_atlas_images_for_depth(self, depth):
@@ -576,8 +585,23 @@ class Window2Screen(BaseScreen):
         # Fade the (identical) atlas label image to the chosen visibility.
         alpha = int(round(255 * self.mask_opacity / 100.0))
         ch = list(mask.split())
-        ch[3] = ch[3].point(lambda a: int(a * alpha / 255))
-        mask = Image.merge("RGBA", ch)
+        r, g, b, a = ch
+        # The atlas label image uses a black ("none"/background) region (label 0)
+        # outside the labeled structures. We must NOT paint that black region over
+        # the MRI — it would wash the histology/MRI with a grey tint. Zero out the
+        # overlay alpha wherever the pixel is effectively black so the MRI shows
+        # through unchanged, and only the colored labeled regions are blended in.
+        # Vectorized with numpy for speed (the mask can be large when zoomed).
+        arr = np.asarray(mask, dtype=np.uint16)
+        rgb = arr[..., :3]
+        # "none" region = near-black across all channels (label 0 background).
+        is_none = (rgb <= 8).all(axis=2)
+        # Scale the source alpha by the chosen opacity, then force the black
+        # "none" pixels fully transparent.
+        new_alpha = (arr[..., 3].astype(np.uint16) * alpha) // 255
+        new_alpha[is_none] = 0
+        arr[..., 3] = new_alpha.astype(np.uint8)
+        mask = Image.fromarray(arr.astype(np.uint8), "RGBA")
         return Image.alpha_composite(base_pil, mask)
 
     def _update_images(self):
@@ -613,6 +637,10 @@ class Window2Screen(BaseScreen):
             bl_source = self.current_atlas_path or _resolve_image_path("ATLAS.png", str(self.base))
             pil, _vp = self._load_zoomed_pil(bl_source, quad_w, quad_h, "bl")
             if pil is not None:
+                # Match the MRI overlay orientation: rotate 90 CW to 12h, then
+                # mirror horizontally (same chain as the atlas label overlay).
+                pil = pil.transpose(Image.Transpose.ROTATE_270).transpose(
+                    Image.Transpose.FLIP_LEFT_RIGHT)
                 photo = ImageTk.PhotoImage(pil)
                 self.images["bl"] = photo
                 self.labels["bl"].configure(image=photo)
