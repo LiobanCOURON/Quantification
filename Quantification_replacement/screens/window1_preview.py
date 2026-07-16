@@ -95,6 +95,16 @@ class Window1Screen(BaseScreen):
         self.depth_entry.bind("<FocusOut>", lambda e: self._on_depth_validate())
         self.depth_entry.bind("<Return>", lambda e: self._on_depth_validate())
 
+        tk.Label(
+            depth_frame, text="Interslice (µm):", font=SMALL_FONT,
+            bg=BG_COLOR, fg=FG_COLOR,
+        ).pack(side=tk.LEFT, padx=(6, 6))
+        self.interslice_entry = tk.Entry(depth_frame, font=SMALL_FONT, width=8, justify="center")
+        self.interslice_entry.insert(0, str(self.state.interslice_um))
+        self.interslice_entry.pack(side=tk.LEFT, padx=(0, 4))
+        self.interslice_entry.bind("<FocusOut>", lambda e: self._on_depth_validate())
+        self.interslice_entry.bind("<Return>", lambda e: self._on_depth_validate())
+
         self.name_list = ScrollableList(left, bg="white")
         self.name_list.grid(
             canvas_kw={"row": 3, "column": 0, "sticky": "nsew"},
@@ -136,11 +146,16 @@ class Window1Screen(BaseScreen):
 
     # ----------------------------------------------------------------- helpers
     def _on_depth_validate(self):
-        """On Depth Validate (usage interne)."""
         try:
             val = float(self.depth_entry.get().replace(",", "."))
             if val > 0:
                 self.state.slice_depth_um = val
+        except ValueError:
+            pass
+        try:
+            val = float(self.interslice_entry.get().replace(",", "."))
+            if val >= 0:
+                self.state.interslice_um = val
         except ValueError:
             pass
 

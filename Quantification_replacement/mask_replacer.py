@@ -245,6 +245,40 @@ def compute_region_surface_areas_mm2(
     return result
 
 
+def compute_slice_area_mm2(
+    mask_png_path: str,
+    pixel_size_um: float,
+    downsample: int = 1,
+) -> float:
+    """Total physical area (mm²) of the full coronal section.
+
+    The warped atlas region mask spans the whole histology section; each of its
+    (W x H) pixels covers (pixel_size_um * downsample) µm, so the total section
+    area is W * H * (pixel_size_um * downsample * 1e-3)² mm².
+
+    Returns 0.0 if the mask is missing/unreadable or pixel_size_um <= 0.
+    """
+    if not mask_png_path or not os.path.exists(mask_png_path):
+        return 0.0
+    if pixel_size_um is None or float(pixel_size_um) <= 0:
+        return 0.0
+    if int(downsample) < 1:
+        downsample = 1
+    try:
+        mask_img = Image.open(mask_png_path).convert("RGB")
+    except Exception:
+        return 0.0
+    arr = np.asarray(mask_img)
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        return 0.0
+    h, w = arr.shape[:2]
+    if h == 0 or w == 0:
+        return 0.0
+    effective_pixel_um = float(pixel_size_um) * float(downsample)
+    pixel_area_mm2 = (effective_pixel_um * 1e-3) ** 2
+    return float(h * w) * pixel_area_mm2
+
+
 def _rgb_to_label_id(rgb):
     """
     Map an (r,g,b) mask pixel back to its label id.

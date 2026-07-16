@@ -939,13 +939,42 @@ class Window2Screen(BaseScreen):
                 pass
             self.pending_atlas_update_id = None
 
+    def destroy(self):
+        """Détruit la vue en annulant les timers after() encore en file.
+
+        Sans cela, un timer (ROI poll / atlas update) planifié avant la
+        navigation pouvait se déclencher sur une vue détruite et lever
+        TclError ('invalid command name ...button'), faisant planter l'app.
+        """
+        self._cancel_roi_poll()
+        self._cancel_pending_atlas()
+        if self.frame is not None and self.frame.winfo_exists():
+            try:
+                self.root.unbind("<Configure>")
+            except tk.TclError:
+                pass
+            try:
+                self.frame.destroy()
+            except tk.TclError:
+                pass
+
     def _poll_roi_once(self):
         """Poll region d'interet (ROI) Once (usage interne)."""
         self.roi_poll_id = None
-        self._refresh_roi_list()
-        if not self.roi_items:
-            self._start_roi_polling()
+        # Garde : le timer peut se déclencher après destruction de la vue
+        # (navigation entre fenêtres). On n'agit que si la vue est vivante.
+        if self.frame is None or not self.frame.winfo_exists():
             return
+
+        if not self.roi_items:
+            # La conversion arrière-plan (start_conversions) peut ne pas avoir
+            # fini au premier scan : on re-scanner le dossier ici, sinon le poll
+            # ne ferait que se relancer indéfiniment sans jamais découvrir la
+            # ROI nouvellement écrite -> quadrant TR bloqué sur l'image fall-back.
+            self._refresh_roi_list()
+            if not self.roi_items:
+                self._start_roi_polling()
+                return
         if self.awaiting_next_roi:
             if self.roi_index + 1 < len(self.roi_items):
                 self.roi_index += 1

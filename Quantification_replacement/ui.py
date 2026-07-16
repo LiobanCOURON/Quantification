@@ -7,6 +7,17 @@ première fenêtre (Window1 — aperçu .czi).
 
 import os
 import shutil
+import warnings
+
+from PIL import Image
+
+# Les mosaïques microscope (fichiers .czi Zeiss) sont lues à résolution native
+# et dépassent largement le seuil de sécurité anti-decompression-bomb de Pillow
+# (~89 Mpx). Ces images sont locales et de confiance : on désactive la garde
+# (qui n'est qu'un avertissement, mais qui DEVIENT une DecompressionBombError
+# fatale au-delà de 2x le seuil et fait planter l'application).
+Image.MAX_IMAGE_PIXELS = None  # aucune limite
+warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
 
 from app import App, APP_BASE_DIR
 from screens.window1_preview import TEMP_VIZU_SUBDIR

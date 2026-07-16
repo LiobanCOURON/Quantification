@@ -40,6 +40,11 @@ from typing import Any, Iterable, Iterator
 import numpy as np
 from PIL import Image
 
+# Mosaïques microscope lues à résolution native (> 89 Mpx) : on désactive la
+# garde decompression-bomb (warning non bloquant, mais DecompressionBombError
+# fatal au-delà de 2x le seuil). Images locales de confiance.
+Image.MAX_IMAGE_PIXELS = None
+
 
 # ----------------------------------------------------------------------------
 # Découverte des fichiers

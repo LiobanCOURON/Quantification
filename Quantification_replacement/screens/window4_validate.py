@@ -30,7 +30,7 @@ from quantification_wrapper import run_quantification
 from mask_replacer import (
     filter_cells_by_region, count_cells_per_region,
     combine_and_filter_cell_mask, compute_region_surface_areas_mm2,
-    load_atlas_volumes,
+    compute_slice_area_mm2,
 )
 from atlas_position_getter import get_or_create_slice_images  # noqa: F401 (kept for parity)
 
@@ -82,6 +82,7 @@ class Window4Screen(BaseScreen):
         outer.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(1, weight=1)
+        outer.rowconfigure(2, weight=0)
 
         tk.Label(outer, text="Window n°4 — Validation et sauvegarde",
                  font=("Arial", 18, "bold"), bg=BG_COLOR, fg=FG_COLOR
@@ -92,6 +93,11 @@ class Window4Screen(BaseScreen):
         content.columnconfigure(0, weight=1)
         content.columnconfigure(1, weight=0)
         content.rowconfigure(0, weight=1)
+
+        nav_bar = tk.Frame(outer, bg=BG_COLOR)
+        nav_bar.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        tk.Button(nav_bar, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+                  command=self._go_prev).pack(side=tk.LEFT, padx=4)
 
         preview_frame = tk.Frame(content, bg=BG_COLOR)
         preview_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 4), pady=10)
@@ -118,8 +124,6 @@ class Window4Screen(BaseScreen):
         buttons = tk.Frame(right, bg=BG_COLOR)
         buttons.grid(row=0, column=1, sticky="n")
 
-        tk.Button(buttons, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
-                  command=self._go_prev).pack(fill=tk.X, pady=2)
         tk.Button(buttons, text="Lame précédente", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._prev_slice).pack(fill=tk.X, pady=2)
         tk.Button(buttons, text="Lame suivante", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
@@ -136,8 +140,6 @@ class Window4Screen(BaseScreen):
         self.reject_button = tk.Button(buttons, text="Rejeter la lame", font=FONT,
                                         bg="#ff0000", fg=FG_COLOR, command=self._reject_slide)
         self.reject_button.pack(fill=tk.X, pady=2)
-        tk.Button(buttons, text="Next", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
-                  command=self._go_next).pack(fill=tk.X, pady=2)
 
         self.root.bind("<Configure>", self._on_configure)
 
@@ -624,142 +626,128 @@ class Window4Screen(BaseScreen):
         self._refresh_preview()
 
     # ================================================================ exports
-    def _write_results_csv(self, dest_csv, item):
-        """Write Results Csv (usage interne).
-        
-        Args:
-            dest_csv (Any): Parametre dest_csv.
-            item (Any): Parametre item.
-        """
-        cells = self._filtered_cells(item)
-        dest_csv.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["roi_folder", "czi_stem", "num_cells", "cell_id",
-                             "x_relative", "y_relative", "x_pixel", "y_pixel"])
-            if cells:
-                for cell in cells:
-                    writer.writerow([
-                        item.get("roi_folder_name", ""), item.get("czi_stem", ""),
-                        len(cells), cell.get("cell_id", ""), cell.get("x_relative", ""),
-                        cell.get("y_relative", ""), cell.get("x_pixel", ""), cell.get("y_pixel", ""),
-                    ])
-            else:
-                writer.writerow([item.get("roi_folder_name", ""), item.get("czi_stem", ""),
-                                 0, "", "", "", "", ""])
+    def _write_czi_summary_csvs(self, dest_dir):
+        """Write Czi Summary Csvs (usage interne).
 
-    def _find_czi_path(self, czi_stem):
-        """Find fichier .czi Path (usage interne).
-        
-        Args:
-            czi_stem (Any): Nom de base (sans extension).
-        
-        Returns:
-            Any: Resultat.
-        """
-        input_dir = Path(self.state.czi_folder_path)
-        try:
-            for czi in convert_czi_to_jpeg.iter_czi_files(input_dir, recursive=True):
-                if czi.stem == czi_stem:
-                    return czi
-        except Exception:
-            pass
-        return None
+        One combined CSV per .czi stem, each containing two tables:
 
-    def _write_volumetric_csvs(self, dest_dir):
-        """Write Volumetric Csvs (usage interne).
-        
-        Args:
-            dest_dir (Any): Repertoire (dossier).
-        
-        Returns:
-            Any: Resultat.
+        Table 1 — region rollup (one row per region):
+            region_name, cell_volume (mm3), cell_number
+          where cell_volume = surface_mm2 * (depth_um + interslice_um) / 1e3.
+
+        Table 2 — per-ROI x region detail:
+            ROI_name, region_name, brain_area (mm2, full section), num_cell,
+            surface (mm2, region), slice_depth (um), interslice (um),
+            cell concentration (cells/mm2 = num_cell / surface_mm2)
+
+        Only .czi stems that have at least one region with data are emitted.
         """
         from convert_czi_to_jpeg import get_czi_pixel_size_um
+
         dest_dir.mkdir(parents=True, exist_ok=True)
         depth_um = self.state.slice_depth_um
-        volumes = load_atlas_volumes()
+        interslice_um = self.state.interslice_um
         depth_mm = depth_um * 1e-3
+        thickness_um = depth_um + interslice_um
 
         def get_pixel_size(czi_stem):
-            """Get Pixel Size
-            
-            Args:
-                czi_stem (Any): Nom de base (sans extension).
-            
-            Returns:
-                Any: Resultat.
-            """
+            """Get Pixel Size"""
             if czi_stem not in self._pixel_size_cache:
                 czi_path = self._find_czi_path(czi_stem)
                 self._pixel_size_cache[czi_stem] = None if czi_path is None else get_czi_pixel_size_um(str(czi_path))
             return self._pixel_size_cache[czi_stem]
 
-        per_roi_rows = []
-        czi_region_concentrations = {}
+        # Group items by czi stem, preserving first-seen order.
+        by_czi = {}
         for item in self.items:
             czi_stem = item.get("czi_stem", "")
-            roi_name = item.get("roi_folder_name", "")
-            mask_png = item.get("mask_png")
-            cells = self._filtered_cells(item)
-            if not mask_png or not os.path.exists(str(mask_png)):
-                continue
-            cell_rows = count_cells_per_region(str(mask_png), cells)
-            cell_counts = {r["label"]: r["count"] for r in cell_rows}
-            pixel_size = get_pixel_size(czi_stem)
-            if pixel_size and pixel_size > 0:
-                surface = compute_region_surface_areas_mm2(
-                    str(mask_png), pixel_size, downsample=DOWNSAMPLE_FACTOR)
-            else:
+            by_czi.setdefault(czi_stem, []).append(item)
+
+        written = []
+        for czi_stem, items in by_czi.items():
+            region_t1 = {}   # lid -> {"name", "volume", "count"}
+            detail_t2 = []    # list of dict rows
+            any_data = False
+
+            for item in items:
+                roi_name = item.get("roi_folder_name", "")
+                mask_png = item.get("mask_png")
+                cells = self._filtered_cells(item)
+                if not mask_png or not os.path.exists(str(mask_png)):
+                    continue
+                pixel_size = get_pixel_size(czi_stem)
+                cell_rows = count_cells_per_region(str(mask_png), cells)
+                cell_counts = {r["label"]: r["count"] for r in cell_rows}
                 surface = {}
-            all_labels = sorted(set(list(cell_counts.keys()) + list(surface.keys())))
-            for lid in all_labels:
-                n_cells = cell_counts.get(lid, 0)
-                surf_mm2 = surface.get(lid, {}).get("surface_mm2", 0.0)
-                region_name = surface.get(lid, {}).get("name") or next(
-                    (r["name"] for r in cell_rows if r["label"] == lid), str(lid))
-                concentration = ""
-                if surf_mm2 > 0 and depth_mm > 0:
-                    concentration = n_cells / (depth_mm * surf_mm2)
-                    czi_region_concentrations.setdefault(czi_stem, {}).setdefault(lid, []).append(concentration)
-                per_roi_rows.append({
-                    "czi_stem": czi_stem, "roi_folder": roi_name, "region_id": lid,
-                    "region_name": region_name, "num_cells": n_cells,
-                    "surface_area_mm2": f"{surf_mm2:.6f}" if surf_mm2 else "",
-                    "slice_depth_um": depth_um if depth_um > 0 else "",
-                    "concentration_cells_per_mm3": f"{concentration:.4f}" if concentration != "" else "",
-                    "pixel_size_um": f"{pixel_size:.4f}" if pixel_size else "",
-                })
+                brain_area_mm2 = 0.0
+                if pixel_size and pixel_size > 0:
+                    surface = compute_region_surface_areas_mm2(
+                        str(mask_png), pixel_size, downsample=DOWNSAMPLE_FACTOR)
+                    brain_area_mm2 = compute_slice_area_mm2(
+                        str(mask_png), pixel_size, downsample=DOWNSAMPLE_FACTOR)
+                all_labels = sorted(set(list(cell_counts.keys()) + list(surface.keys())))
+                for lid in all_labels:
+                    n_cells = cell_counts.get(lid, 0)
+                    surf_mm2 = surface.get(lid, {}).get("surface_mm2", 0.0)
+                    region_name = surface.get(lid, {}).get("name") or next(
+                        (r["name"] for r in cell_rows if r["label"] == lid), str(lid))
+                    concentration = (n_cells / surf_mm2) if surf_mm2 > 0 else ""
+                    # Table 1 rollup (cell volume per region, mm3).
+                    if surf_mm2 > 0 and thickness_um > 0:
+                        cell_volume = surf_mm2 * thickness_um / 1e3
+                    else:
+                        cell_volume = ""
+                    agg = region_t1.setdefault(lid, {"name": region_name, "volume": 0.0, "count": 0})
+                    agg["name"] = region_name
+                    agg["count"] += n_cells
+                    if cell_volume != "":
+                        agg["volume"] += cell_volume
+                    # Table 2 detail (per ROI x region).
+                    detail_t2.append({
+                        "roi_name": roi_name,
+                        "region_name": region_name,
+                        "brain_area_mm2": f"{brain_area_mm2:.6f}" if brain_area_mm2 else "",
+                        "num_cell": n_cells,
+                        "surface_mm2": f"{surf_mm2:.6f}" if surf_mm2 else "",
+                        "slice_depth_um": f"{depth_um:.4f}" if depth_um > 0 else "",
+                        "interslice_um": f"{interslice_um:.4f}" if interslice_um > 0 else "0.0000",
+                        "cell_concentration_cells_per_mm2": f"{concentration:.4f}" if concentration != "" else "",
+                    })
+                    if n_cells or surf_mm2 > 0:
+                        any_data = True
 
-        per_roi_csv = dest_dir / "per_roi_volumetric.csv"
-        with open(per_roi_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["czi_stem", "roi_folder", "region_id", "region_name",
-                             "num_cells", "surface_area_mm2", "slice_depth_um",
-                             "concentration_cells_per_mm3", "pixel_size_um"])
-            for row in per_roi_rows:
-                writer.writerow([row["czi_stem"], row["roi_folder"], row["region_id"],
-                                 row["region_name"], row["num_cells"], row["surface_area_mm2"],
-                                 row["slice_depth_um"], row["concentration_cells_per_mm3"], row["pixel_size_um"]])
+            if not any_data and not region_t1:
+                continue
 
-        summary_csv = dest_dir / "volumetric_summary.csv"
-        with open(summary_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["czi_stem", "region_id", "region_name",
-                             "mean_concentration_cells_per_mm3", "num_rois",
-                             "region_volume_mm3", "estimated_absolute_cells"])
-            for czi_stem, regions in sorted(czi_region_concentrations.items()):
-                for lid, concs in sorted(regions.items()):
-                    vol_info = volumes.get(lid, {})
-                    region_name = vol_info.get("name") or str(lid)
-                    region_volume = vol_info.get("volume_mm3", 0.0)
-                    mean_conc = sum(concs) / len(concs) if concs else 0.0
-                    estimated = mean_conc * region_volume if region_volume > 0 else ""
-                    writer.writerow([czi_stem, lid, region_name,
-                                     f"{mean_conc:.4f}" if mean_conc else "0", len(concs),
-                                     f"{region_volume:.6f}" if region_volume else "",
-                                     f"{estimated:.2f}" if estimated != "" else ""])
-        return per_roi_csv, summary_csv
+            safe_stem = self._safe_folder_name(czi_stem)
+            out_csv = dest_dir / f"{safe_stem}_summary.csv"
+            with open(out_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                # ---- Table 1 : rollup par région ----
+                writer.writerow([f"# {czi_stem}"])
+                writer.writerow(["region_name", "cell_volume", "cell_number"])
+                for lid in sorted(region_t1.keys()):
+                    agg = region_t1[lid]
+                    writer.writerow([
+                        agg["name"],
+                        f"{agg['volume']:.6f}" if agg["volume"] else "0.000000",
+                        agg["count"],
+                    ])
+                # ---- Table 2 : détail ROI x région ----
+                writer.writerow([])
+                writer.writerow([f"# {czi_stem} — detail"])
+                writer.writerow([
+                    "ROI_name", "region_name", "brain_area", "num_cell",
+                    "surface", "slice_depth", "interslice", "cell concentration",
+                ])
+                for row in detail_t2:
+                    writer.writerow([
+                        row["roi_name"], row["region_name"], row["brain_area_mm2"],
+                        row["num_cell"], row["surface_mm2"], row["slice_depth_um"],
+                        row["interslice_um"], row["cell_concentration_cells_per_mm2"],
+                    ])
+            written.append(out_csv)
+        return written
 
     def _save_bundle(self, dest_root):
         """Save Bundle (usage interne).
@@ -784,7 +772,6 @@ class Window4Screen(BaseScreen):
             raise RuntimeError("Impossible de générer graph.jpeg")
         image_preview.save(dest_dir / "image+2masks.jpeg", format="JPEG", quality=95)
         diagram_preview.save(dest_dir / "graph.jpeg", format="JPEG", quality=95)
-        self._write_results_csv(dest_dir / "results.csv", item)
         cell_mask = item.get("cell_mask_path")
         region_png = item.get("mask_png")
         if cell_mask and os.path.exists(str(cell_mask)):
@@ -794,14 +781,11 @@ class Window4Screen(BaseScreen):
                 str(region_png) if region_png and os.path.exists(str(region_png)) else None,
                 str(combined_path),
             )
-        depth_um = self.state.slice_depth_um
-        if depth_um <= 0:
-            print("[volumetric] Slice depth <= 0, skipping volumetric CSVs.")
-        else:
-            try:
-                self._write_volumetric_csvs(Path(dest_root))
-            except Exception as exc:
-                print(f"[volumetric] Could not generate volumetric CSVs: {exc}")
+        # One combined CSV per .czi stem (two tables: region rollup + detail).
+        try:
+            self._write_czi_summary_csvs(Path(dest_root))
+        except Exception as exc:
+            print(f"[volumetric] Could not generate per-czi CSVs: {exc}")
         return dest_dir
 
     def _validate_slide(self):
