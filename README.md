@@ -73,6 +73,7 @@ convert_czi_to_jpeg.py     → Conversion d'un .czi en tableau JPEG/array
 mask_replacer.py           → Remplacement/édition de masque (alignement atlas)
 atlas_position_getter.py   → Calcul de la position dans l'atlas (coordonnées)
 quantification_wrapper.py  → Wrapper d'appel à QuPath (deux passes : detect + quantify)
+gen_manuel_pdf.py          → Génère le manuel utilisateur PDF (via ReportLab)
 atlas.temp.py              → Script temporaire d'exploration atlas (référence)
 install.bat                → Crée le venv + installe les dépendances
 lunch.bat                  → Lance l'appli dans le venv
@@ -155,6 +156,7 @@ Quantification_replacement/
 ├── mask_replacer.py       # édition/alignement de masque
 ├── atlas_position_getter.py
 ├── quantification_wrapper.py
+├── gen_manuel_pdf.py      # génération du manuel utilisateur PDF
 ├── atlas.temp.py          # exploration atlas (script temporaire)
 ├── install.bat / lunch.bat
 ├── .gitignore
@@ -205,6 +207,7 @@ dans `output/`.
 | `mask_replacer.py` | Édite/remplace un masque et gère l'alignement atlas. |
 | `atlas_position_getter.py` | Calcule la position dans l'atlas pour une coupe donnée. |
 | `quantification_wrapper.py` | Wrapper d'appel à QuPath (2 passes). |
+| `gen_manuel_pdf.py` | Génère le manuel utilisateur au format PDF (nécessite `reportlab`). |
 | `atlas.temp.py` | Script d'exploration atlas (référence temporaire, non utilisé en prod). |
 
 Ces scripts peuvent être lancés individuellement (ex. `python convert_czi_to_jpeg.py`)
@@ -230,9 +233,13 @@ python -m pytest tests/ -v
 ## Maintenance
 
 ### Règles de code
-- **Docstrings** : tout le code actif est documenté au format **Google**
-  (sections `Args:` / `Returns:`). Voir `app/`, `screens/`, `workers/`,
-  `tests/` et les scripts racine.
+- **Docstrings** : **100 % du code actif est documenté** au format **Google**
+  (docstring de module + sections `Args:` / `Returns:` sur chaque classe/fonction).
+  Couvre `app/`, `screens/`, `workers/`, `tests/` et les scripts racine
+  (`ui.py`, `mask_replacer.py`, `quantification_wrapper.py`,
+  `atlas_position_getter.py`, `convert_czi_to_jpeg.py`, `gen_manuel_pdf.py`).
+  Vérifiable avec un simple parcours AST (aucun `FunctionDef`/`ClassDef` sans
+  docstring dans l'ensemble exécuté).
 - **Encodage** : fichiers en UTF-8 (scripts `.bat` en page de code 65001).
 - **Packages** : la logique UI vit dans `app/` + `screens/` ; `ui.py` reste un
   simple amorçage.
@@ -250,12 +257,6 @@ propre ne la inclura pas.
   ouverte) pour voir les tracebacks.
 - Les workers tournent en thread : vérifiez les files d'attente (queue) et les
   callbacks pour diagnostiquer un blocage d'UI.
-
-### Fichiers générés par l'IA (à conserver ou supprimer)
-`Quantification_replacement/_add_google_docstrings.py` est un outil interne
-ayant servi à insérer les docstrings Google. Il n'est **pas** requis pour
-lancer l'application et peut être supprimé. Idem pour `_repair_orphan_docstrings.py`
-et `_check_shadow.ps1` (outils de diagnostic ponctuels).
 
 ---
 

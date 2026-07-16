@@ -68,10 +68,28 @@ S = styles  # short alias
 
 
 def par(texte, style="Corps"):
+    """Build a paragraph flowable in the given named style.
+
+    Args:
+        texte: Paragraph text (may contain ReportLab inline markup).
+        style: Key of the style to apply (default ``"Corps"``).
+
+    Returns:
+        Paragraph: The styled paragraph flowable.
+    """
     return Paragraph(texte, S[style])
 
 
 def puce(items, style="Puce"):
+    """Build a bulleted list flowable from a sequence of text items.
+
+    Args:
+        items: Iterable of strings, one per bullet.
+        style: Key of the paragraph style applied to each item (default ``"Puce"``).
+
+    Returns:
+        ListFlowable: A blue-bulleted list of the items.
+    """
     return ListFlowable(
         [ListItem(Paragraph(t, S[style]), leftIndent=6) for t in items],
         bulletType="bullet", start="•", leftIndent=14, bulletColor=BLEU,
@@ -79,6 +97,16 @@ def puce(items, style="Puce"):
 
 
 def btn_label(texte, rouge=False):
+    """Build a paragraph styled like a UI button label.
+
+    Args:
+        texte: Button caption text.
+        rouge: If True, use the red button style (``"BtnR"``); otherwise the
+            default button style (``"Btn"``).
+
+    Returns:
+        Paragraph: The button-styled paragraph flowable.
+    """
     st = S["BtnR"] if rouge else S["Btn"]
     return Paragraph(texte, st)
 

@@ -27,12 +27,24 @@ class PreviewZoomPanMixin:
     """
 
     def _init_zoom_pan(self):
+        """Initialise zoom/pan state; call once from the screen's ``build()``.
+
+        Sets ``zoom_state`` (zoom factor + normalized center), ``pan_state`` (empty
+        until a drag begins) and ``viewport`` (the full image [0,1] rectangle).
+        """
         self.zoom_state = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
         self.pan_state = {}
         self.viewport = (0.0, 0.0, 1.0, 1.0)
 
     def _zoom_viewport(self):
-        st = self.zoom_state
+        """Compute the normalized crop rectangle for the current zoom/center.
+
+        Clamps the center so the viewport stays within the [0,1] image bounds.
+
+        Returns:
+            tuple: ``(nx0, ny0, nx1, ny1)`` normalized coordinates of the visible
+            region (all in [0,1]).
+        """
         zoom = max(1.0, st["zoom"])
         half = 0.5 / zoom
         cx, cy = st["cx"], st["cy"]
@@ -53,6 +65,12 @@ class PreviewZoomPanMixin:
         return (nx0, ny0, nx1, ny1)
 
     def _displayed_size(self):
+        """Return the pixel size of the currently displayed preview image.
+
+        Returns:
+            tuple | None: ``(width, height)`` of the current ``preview_photo``, or
+            None if no photo is set or its size cannot be read.
+        """
         photo = getattr(self, "preview_photo", None)
         if photo is None:
             return None
@@ -62,6 +80,15 @@ class PreviewZoomPanMixin:
             return None
 
     def _on_preview_wheel(self, event):
+        """Handle mouse-wheel zoom on the preview, anchored at the cursor.
+
+        Zooms in/out by ``_ZOOM_STEP`` (clamped to ``_ZOOM_MIN``/``_ZOOM_MAX``) and
+        keeps the point under the cursor fixed when possible, then refreshes the
+        preview.
+
+        Args:
+            event: The Tkinter wheel event (``num`` 4/5 on X11, ``delta`` elsewhere).
+        """
         if event.num in (4, 5):
             direction = 1 if event.num == 4 else -1
         else:
@@ -103,6 +130,11 @@ class PreviewZoomPanMixin:
         self._refresh_preview()
 
     def _on_preview_pan_start(self, event):
+        """Begin a middle-mouse pan by recording the start cursor + viewport state.
+
+        Args:
+            event: The Tkinter button-press event that starts the drag.
+        """
         self.pan_state["start_x"] = event.x
         self.pan_state["start_y"] = event.y
         self.pan_state["start_cx"] = self.zoom_state["cx"]
@@ -110,6 +142,15 @@ class PreviewZoomPanMixin:
         self.pan_state["viewport"] = self.viewport
 
     def _on_preview_pan_motion(self, event):
+        """Update the zoom center as the cursor is dragged, then refresh preview.
+
+        Translates the pixel drag delta into a normalized center shift within the
+        current viewport (clamped to [0,1]). No-op if no pan is in progress or the
+        displayed size is unavailable.
+
+        Args:
+            event: The Tkinter motion event during the drag.
+        """
         if not self.pan_state:
             return
         disp = self._displayed_size()
@@ -130,9 +171,15 @@ class PreviewZoomPanMixin:
         self._refresh_preview()
 
     def _on_preview_pan_end(self, _event=None):
+        """End the current pan by clearing the transient pan state.
+
+        Args:
+            _event: The Tkinter button-release event (unused).
+        """
         self.pan_state.clear()
 
     def _reset_zoom(self):
+        """Reset zoom to 1x and the viewport to the full image, then refresh."""
         self.zoom_state = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
         self.viewport = (0.0, 0.0, 1.0, 1.0)
         self._refresh_preview()

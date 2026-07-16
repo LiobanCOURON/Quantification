@@ -793,6 +793,15 @@ class Window4Screen(BaseScreen):
             self._refresh_preview()
 
     def _refresh_if_current(self, token):
+        """Refresh the preview only if this debounce token is still the latest.
+
+        Guards against stale debounced callbacks: a burst of slider/zoom/resize
+        events schedules many ``root.after`` calls, but only the one whose token
+        matches ``self._refresh_token`` actually re-renders.
+
+        Args:
+            token: The debounce token captured when the refresh was scheduled.
+        """
         if getattr(self, "_refresh_token", 0) == token:
             self._refresh_preview()
 

@@ -178,6 +178,12 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
 
     # ----------------------------------------------------------------- helpers
     def _on_depth_validate(self):
+        """Validate and store the slice-depth and inter-slice values from the entries.
+
+        Parses both entry fields (accepting comma or dot decimals) and updates
+        ``state.slice_depth_um`` (if > 0) and ``state.interslice_um`` (if >= 0).
+        Silently ignores non-numeric input.
+        """
         try:
             val = float(self.depth_entry.get().replace(",", "."))
             if val > 0:
