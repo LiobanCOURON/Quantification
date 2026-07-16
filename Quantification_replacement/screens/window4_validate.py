@@ -443,39 +443,6 @@ class Window4Screen(BaseScreen):
             print(f"[window4] cannot load region mask {mask_path}: {exc}")
             return None
 
-    def _overlay_cell_mask(self, mask_path, target_size, alpha=None):
-        """Overlay Cell Mask (usage interne).
-
-        Mirrors _load_mask_rgba exactly: reads self.cell_opacity and returns a
-        single opacity-aware RGBA overlay (no separate drawn dots), so the cell
-        transparency behaves identically to the region transparency.
-
-        Args:
-            mask_path (Any): Chemin vers le fichier.
-            target_size (Any): Parametre target_size.
-            alpha (Any): Cell overlay strength 0..1 (None -> self.cell_opacity %).
-
-        Returns:
-            Any: Resultat (RGBA overlay or None).
-        """
-        if alpha is None:
-            alpha = max(0.0, min(1.0, self.cell_opacity.get() / 100.0))
-        if not mask_path or not os.path.exists(mask_path):
-            return None
-        try:
-            mask = Image.open(mask_path).convert("RGBA").resize(target_size, Image.Resampling.LANCZOS)
-            arr = np.asarray(mask).copy()
-            non_bg = np.any(arr[:, :, :3] > 8, axis=2)
-            # Tint precise QuPath cells cyan so they read distinctly from regions.
-            arr[:, :, 0] = non_bg.astype(np.uint8) * 0
-            arr[:, :, 1] = non_bg.astype(np.uint8) * 200
-            arr[:, :, 2] = non_bg.astype(np.uint8) * 255
-            arr[:, :, 3] = (non_bg.astype(np.uint8) * int(255 * alpha))
-            return Image.fromarray(arr, mode="RGBA")
-        except Exception as exc:
-            print(f"[window4] cannot load cell mask {mask_path}: {exc}")
-            return None
-
     def _filtered_cells(self, item=None):
         """Filtered Cells (usage interne).
         
@@ -510,10 +477,51 @@ class Window4Screen(BaseScreen):
         region_overlay = self._load_mask_rgba(region_png, base.size)
         if region_overlay is not None:
             base = Image.alpha_composite(base, region_overlay)
-        cell_overlay = self._overlay_cell_mask(item.get("cell_mask_path"), base.size)
-        if cell_overlay is not None:
-            base = Image.alpha_composite(base, cell_overlay)
+        # Draw ONLY the in-region (filtered) cells as cyan markers. Cells whose
+        # centroid falls in the region-mask "none" area (black / background) are
+        # visually deleted here and already excluded from every calculation
+        # (diagram, CSVs, counts) via self._filtered_cells(); they stay saved in
+        # the quantification JSON of relative coordinates. This keeps the image
+        # preview WYSIWYG with the diagram/exports instead of overlaying the raw,
+        # unfiltered merged QuPath cell mask.
+        alpha = max(0.0, min(1.0, self.cell_opacity.get() / 100.0))
+        cells = self._filtered_cells(item)
+        base = self._draw_filtered_cells(base, cells, alpha)
         return base.convert("RGB")
+
+    def _draw_filtered_cells(self, base, cells, alpha):
+        """Draw the region-filtered cells as semi-transparent cyan markers.
+
+        Args:
+            base (PIL.Image.RGBA): composited histology + region overlay.
+            cells (list[dict]): cells already filtered to in-region only.
+            alpha (float): cell overlay strength 0..1 (self.cell_opacity %).
+
+        Returns:
+            PIL.Image.RGBA: ``base`` with cyan cell markers drawn on top.
+        """
+        if not cells or alpha <= 0.0:
+            return base
+        w, h = base.size
+        draw = ImageDraw.Draw(base, "RGBA")
+        # Marker radius scales mildly with image size so dots stay visible
+        # when zoomed (preview is cropped from this native-res image).
+        radius = max(1.5, min(6.0, (min(w, h) / 512.0) * 3.0))
+        a_byte = int(255 * alpha)
+        for cell in cells:
+            try:
+                nx = float(cell.get("x_relative", 0.0))
+                ny = float(cell.get("y_relative", 0.0))
+            except (TypeError, ValueError):
+                continue
+            px = int(round(min(1.0, max(0.0, nx)) * (w - 1)))
+            py = int(round(min(1.0, max(0.0, ny)) * (h - 1)))
+            draw.ellipse(
+                [px - radius, py - radius, px + radius, py + radius],
+                fill=(0, 200, 255, a_byte),
+                outline=(0, 120, 180, min(255, a_byte + 40)),
+            )
+        return base
 
     def _make_diagram_preview(self, item=None):
         """Make Diagram Preview (usage interne).
