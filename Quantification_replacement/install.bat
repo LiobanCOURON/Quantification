@@ -148,10 +148,97 @@ if !ERRORLEVEL! NEQ 0 (
     exit /b 1
 )
 
+REM ---------------------------------------------------------------
+REM 5) Atlas rat WHS_SD_rat_v4 : telechargement + extraction + images
+REM    (necessite le python du venv : on est apres l'activation)
+REM ---------------------------------------------------------------
+set "ATLASDIR=%~dp0Rat atlas"
+if not exist "%ATLASDIR%" mkdir "%ATLASDIR%"
+
+echo.
+echo ============================================================
+echo   Preparation de l'atlas rat (WHS_SD_rat_v4)
+echo ============================================================
+
+call :download "https://www.nitrc.org/frs/download.php/12260/WHS_SD_rat_atlas_v4.nii.gz" "%ATLASDIR%\WHS_SD_rat_atlas_v4.nii.gz" "atlas v4 (.nii.gz)" "%ATLASDIR%\WHS_SD_rat_atlas_v4.nii"
+call :download "https://www.nitrc.org/frs/download.php/12261/WHS_SD_rat_atlas_v4.label" "%ATLASDIR%\WHS_SD_rat_atlas_v4.label" "atlas v4 (.label)"
+call :download "https://www.nitrc.org/frs/downloadlink.php/9423" "%ATLASDIR%\WHS_SD_rat_T2star_v1.01.nii.gz" "T2star v1.01 (.nii.gz)" "%ATLASDIR%\WHS_SD_rat_T2star_v1.01.nii"
+
+REM Extraction des .nii.gz via le python du venv (aucun outil externe requis).
+set "GZ1=%ATLASDIR%\WHS_SD_rat_atlas_v4.nii.gz"
+set "NI1=%ATLASDIR%\WHS_SD_rat_atlas_v4.nii"
+if not exist "%NI1%" (
+    if exist "%GZ1%" (
+        echo [ATLAS] Extraction de WHS_SD_rat_atlas_v4.nii.gz ...
+        python -c "import gzip,shutil; shutil.copyfileobj(gzip.open(r'%GZ1%','rb'), open(r'%NI1%','wb'))"
+        if exist "%NI1%" del "%GZ1%"
+    )
+) else (
+    echo [ATLAS] WHS_SD_rat_atlas_v4.nii deja present.
+)
+
+set "GZ2=%ATLASDIR%\WHS_SD_rat_T2star_v1.01.nii.gz"
+set "NI2=%ATLASDIR%\WHS_SD_rat_T2star_v1.01.nii"
+if not exist "%NI2%" (
+    if exist "%GZ2%" (
+        echo [ATLAS] Extraction de WHS_SD_rat_T2star_v1.01.nii.gz ...
+        python -c "import gzip,shutil; shutil.copyfileobj(gzip.open(r'%GZ2%','rb'), open(r'%NI2%','wb'))"
+        if exist "%NI2%" del "%GZ2%"
+    )
+) else (
+    echo [ATLAS] WHS_SD_rat_T2star_v1.01.nii deja present.
+)
+
+echo.
+echo [ATLAS] Generation des images 512x512 (AtlasImgs/)...
+python scripts/generate_atlas_sequence.py
+echo [ATLAS] Generation terminee.
+
 echo.
 echo ============================================================
 echo   Installation terminee avec succes !
 echo   Pour lancer l'application : double-cliquez sur lunch.bat
 echo ============================================================
 pause
+goto :eof
+
+REM ---------------------------------------------------------------
+REM :download <URL> <OUT> <LABEL>
+REM   Telecharge OUT depuis URL avec une barre de progression (#).
+REM   Saute le telechargement si OUT existe deja (idempotent).
+REM   -#  => barre de progression type "##########" sur stderr.
+REM   -L  => suit les redirections (nitrc downloadlink notamment).
+REM ---------------------------------------------------------------
+:download
+set "URL=%~1"
+set "OUT=%~2"
+set "LABEL=%~3"
+set "DONE=%~4"
+REM Saute si le fichier cible OU le fichier deja extrait existe deja
+REM (re-joue sur un venv recree : les .nii extraits survivent a la suppression du venv).
+if exist "%OUT%" (
+    echo [ATLAS] %LABEL% deja present - telechargement saute.
+    goto :eof
+)
+if defined DONE if exist "%DONE%" (
+    echo [ATLAS] %LABEL% deja extrait - telechargement saute.
+    goto :eof
+)
+echo.
+echo [ATLAS] Telechargement %LABEL% ...
+where curl >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERREUR] curl est requis pour telecharger l'atlas mais il est absent.
+    pause
+    exit /b 1
+)
+curl -# -L -o "%OUT%" "%URL%"
+if not exist "%OUT%" (
+    echo [ERREUR] Echec du telechargement de %LABEL% (verifiez la connexion).
+    pause
+    exit /b 1
+)
+echo [ATLAS] %LABEL% telecharge.
+goto :eof
+
 endlocal
