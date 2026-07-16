@@ -92,10 +92,17 @@ class Window2Screen(BaseScreen):
 
         outer = tk.Frame(self.frame, bg=BG_COLOR)
         outer.pack(fill=tk.BOTH, expand=True)
+        # Three explicit rows: header (fixed), image grid (absorbs slack),
+        # buttons (fixed). This guarantees the button bar can never be
+        # compressed by the 2x2 image grid or the header.
+        outer.grid_rowconfigure(0, weight=0)
+        outer.grid_rowconfigure(1, weight=1)
+        outer.grid_rowconfigure(2, weight=0)
+        outer.grid_columnconfigure(0, weight=1)
 
         # Top header: title (left) + help button (right).
         header = tk.Frame(outer, bg=BG_COLOR)
-        header.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(8, 2))
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
         tk.Label(header, text="Window 2 — Mask + alignment 2x2",
                  font=("Arial", 16, "bold"), bg=BG_COLOR, fg=FG_COLOR
                  ).pack(side=tk.LEFT)
@@ -107,7 +114,7 @@ class Window2Screen(BaseScreen):
             "  • Click on a pane to place a marker (aligned point).\n"
             "  • Mouse wheel : zoom a pane in / out, centered on cursor.\n"
             "  • Middle mouse button (drag) : pan a pane when zoomed.\n"
-            "  • 'Réinitialiser le zoom' : reset all panes to fit.\n\n"
+            "  • 'Reset zoom' : reset all panes to fit.\n\n"
             "ATLAS VALUE\n"
             "  • Double-click the atlas value to edit it inline.\n\n"
             "SLIDER (bottom)\n"
@@ -115,7 +122,7 @@ class Window2Screen(BaseScreen):
         )
 
         grid_frame = tk.Frame(outer, bg=BG_COLOR)
-        grid_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        grid_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
         grid_frame.columnconfigure(0, weight=1, uniform="quad")
         grid_frame.columnconfigure(1, weight=1, uniform="quad")
         grid_frame.rowconfigure(0, weight=1, uniform="quad")
@@ -180,8 +187,8 @@ class Window2Screen(BaseScreen):
 
         # Barre de boutons.
         button_frame = tk.Frame(outer, bg=BG_COLOR, height=60)
-        button_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=20)
-        button_frame.pack_propagate(False)
+        button_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 6))
+        button_frame.grid_propagate(False)
 
         tk.Button(button_frame, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._go_prev).pack(side=tk.LEFT)
@@ -189,19 +196,19 @@ class Window2Screen(BaseScreen):
                                  bg=ACCENT_COLOR_BLUE, fg=FG_COLOR, command=self._toggle_marker_mode)
         place_button.pack(side=tk.LEFT, padx=10)
         self.marker_buttons["place"] = place_button
-        tk.Button(button_frame, text="Annuler le point", font=FONT, bg=CLICK_BOXES_COLOR,
+        tk.Button(button_frame, text="Cancel point", font=FONT, bg=CLICK_BOXES_COLOR,
                   fg=FG_COLOR, command=self._undo_last_point).pack(side=tk.LEFT, padx=10)
-        tk.Button(button_frame, text="Replacer le masque", font=FONT, bg=CLICK_BOXES_COLOR,
+        tk.Button(button_frame, text="Replace mask", font=FONT, bg=CLICK_BOXES_COLOR,
                   fg=FG_COLOR, command=self._replace_mask).pack(side=tk.LEFT, padx=10)
-        tk.Button(button_frame, text="Réinitialiser le zoom", font=FONT, bg=CLICK_BOXES_COLOR,
+        tk.Button(button_frame, text="Reset zoom", font=FONT, bg=CLICK_BOXES_COLOR,
                   fg=FG_COLOR, command=self._reset_all_zoom).pack(side=tk.LEFT, padx=10)
 
         next_button = tk.Button(button_frame, text="Next", font=FONT, bg=CLICK_BOXES_COLOR,
                                 fg=FG_COLOR, command=self._go_next)
         next_button.pack(side=tk.RIGHT)
-        tk.Button(button_frame, text="Annuler la validation", font=FONT, bg=ERROR_COLOR,
+        tk.Button(button_frame, text="Cancel validation", font=FONT, bg=ERROR_COLOR,
                   fg=FG_COLOR, command=self._cancel_last_validation).pack(side=tk.RIGHT, padx=10)
-        tk.Button(button_frame, text="Valider la coupe", font=FONT, bg=ACCENT_COLOR_GREEN,
+        tk.Button(button_frame, text="Validate slice", font=FONT, bg=ACCENT_COLOR_GREEN,
                   fg=FG_COLOR, command=self._validate_current_roi).pack(side=tk.RIGHT, padx=10)
 
         self.root.bind("<Configure>", lambda e: self._update_images())
@@ -741,7 +748,7 @@ class Window2Screen(BaseScreen):
         n = min(len(tl_pts), len(tr_pts))
         pairs = [(tl_pts[i], tr_pts[i]) for i in range(n)]
         if n < 2:
-            messagebox.showwarning("Points insuffisants", "Sélectionner au moins 2 points")
+            messagebox.showwarning("Not enough points", "Select at least 2 points")
             return
         try:
             out_path = replace_mask(self.current_atlas_depth, pairs,
@@ -1013,7 +1020,7 @@ class Window2Screen(BaseScreen):
     def _validate_current_roi(self):
         """Validate Current region d'interet (ROI) (usage interne)."""
         if not (0 <= self.roi_index < len(self.roi_items)):
-            messagebox.showwarning("Aucune coupe", "Aucune image ROI à valider.")
+            messagebox.showwarning("No slice", "No ROI image to validate.")
             return
         item = self.roi_items[self.roi_index]
         tl_pts = list(self.marker_points["tl"])
@@ -1021,7 +1028,7 @@ class Window2Screen(BaseScreen):
         order = list(self.marker_order)
         n = min(len(tl_pts), len(tr_pts))
         if n < 2:
-            messagebox.showwarning("Points insuffisants", "Placer au moins 2 paires de marqueurs.")
+            messagebox.showwarning("Not enough points", "Place at least 2 marker pairs.")
             return
         pairs = [(tl_pts[i], tr_pts[i]) for i in range(n)]
         try:
@@ -1034,7 +1041,7 @@ class Window2Screen(BaseScreen):
                 histo_path=str(item["image_path"]),
             )
         except Exception as e:
-            messagebox.showerror("Erreur sauvegarde masque", str(e))
+            messagebox.showerror("Mask save error", str(e))
             return
         self._write_marker_txt(str(item["mask_txt"]), self.current_atlas_depth,
                                tl_pts, tr_pts, order)
@@ -1048,8 +1055,8 @@ class Window2Screen(BaseScreen):
         if next_index >= len(self.roi_items):
             messagebox.showinfo(
                 "Validation",
-                "Coupe validée. Aucune autre coupe disponible pour le moment\n"
-                "(la conversion .czi peut encore être en cours).",
+                "Slice validated. No other slice available for now\n"
+                "(.czi conversion may still be running).",
             )
             self._clear_markers()
             self.br_result_path = str(item["mask_overlay_png"])
@@ -1066,7 +1073,7 @@ class Window2Screen(BaseScreen):
     def _cancel_last_validation(self):
         """Cancel Last Validation (usage interne)."""
         if self.roi_index <= 0 or self.roi_index >= len(self.roi_items):
-            messagebox.showinfo("Annulation", "Aucune validation précédente à annuler.")
+            messagebox.showinfo("Cancellation", "No previous validation to cancel.")
             return
         self.awaiting_next_roi = False
         self.roi_index -= 1
