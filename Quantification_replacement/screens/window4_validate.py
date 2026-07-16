@@ -23,6 +23,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from app.base_screen import BaseScreen
 from app.theme import BG_COLOR, FG_COLOR, SMALL_FONT, FONT, CLICK_BOXES_COLOR, ACCENT_COLOR_BLUE
+from app.common_widgets import add_help_button
 from app.image_utils import get_img_dims
 from workers.czi_converter import DOWNSAMPLE_FACTOR, JPEG_OUTPUT_SUBDIR, QUANTIFICATION_JPEG_OUTPUT_SUBDIR
 import convert_czi_to_jpeg
@@ -37,6 +38,10 @@ from atlas_position_getter import get_or_create_slice_images  # noqa: F401 (kept
 from app import APP_BASE_DIR
 
 _Z_SLICE_RE = re.compile(r"_z_slice_(\d+)\.jpeg$", re.IGNORECASE)
+
+_ZOOM_MIN = 1.0
+_ZOOM_MAX = 20.0
+_ZOOM_STEP = 1.25
 
 
 class Window4Screen(BaseScreen):
@@ -67,6 +72,13 @@ class Window4Screen(BaseScreen):
         self.reject_button = None
         self.quant_map = {}
         self._pixel_size_cache = {}
+        self.zoom_state = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
+        self.viewport = (0.0, 0.0, 1.0, 1.0)
+        self.pan_state = {}
+        self.region_opacity = tk.DoubleVar(value=35.0)   # %
+        self.cell_opacity = tk.DoubleVar(value=82.0)     # %
+        self._composite_cache = None   # (cache_key, PIL RGB image at native res)
+        self.reset_zoom_button = None
 
     # ================================================================ build
     def build(self):
@@ -84,9 +96,37 @@ class Window4Screen(BaseScreen):
         outer.rowconfigure(1, weight=1)
         outer.rowconfigure(2, weight=0)
 
-        tk.Label(outer, text="Window n°4 — Validation et sauvegarde",
+        header = tk.Frame(outer, bg=BG_COLOR)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        tk.Label(header, text="Window 4 — Validation and export",
                  font=("Arial", 18, "bold"), bg=BG_COLOR, fg=FG_COLOR
-                 ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+                 ).pack(side=tk.LEFT)
+        add_help_button(
+            header, "Window 4 — Help",
+            "WINDOW 4 — Validation and volumetric export\n"
+            "------------------------------------------------------------\n\n"
+            "PREVIEW (left)\n"
+            "  • Mouse wheel : zoom in / out, centered on the cursor.\n"
+            "  • Middle mouse button (drag) : pan the image when zoomed.\n"
+            "  • 'Reset zoom' button (right) : return to fit-to-window.\n\n"
+            "Z SLIDER (right, vertical)\n"
+            "  • Scrolls through the Z layers of the current slice.\n\n"
+            "TRANSPARENCY (right)\n"
+            "  • 'Region mask opacity' : how transparent the colored\n"
+            "    anatomical-region overlay is (0% = invisible, 100% = solid).\n"
+            "  • 'Cell mask opacity' : how transparent the detected-cell\n"
+            "    overlay (and cell dots) is.\n\n"
+            "NAVIGATION (right)\n"
+            "  • 'Previous slice' / 'Next slice' : move between brain slices.\n"
+            "  • 'Show diagram' / 'Show image' : toggle between the bar-chart\n"
+            "    of cells-per-region and the overlaid histology image.\n"
+            "  • 'Validate slide' : run quantification checks and save to\n"
+            "    WorkInProgress/Validation.\n"
+            "  • 'Save' / 'Save to...' : export the image, graph and CSVs.\n"
+            "  • 'Reject slide' : re-run QuPath quantification on this slice.\n\n"
+            "BOTTOM-LEFT\n"
+            "  • 'Previous' : go back to Window 3.",
+        )
 
         content = tk.Frame(outer, bg=BG_COLOR, relief="solid", borderwidth=1)
         content.grid(row=1, column=0, sticky="nsew")
@@ -104,9 +144,16 @@ class Window4Screen(BaseScreen):
         preview_frame.rowconfigure(0, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
-        self.preview_label = tk.Label(preview_frame, text="Chargement de la prévisualisation...",
+        self.preview_label = tk.Label(preview_frame, text="Loading preview...",
                                       font=FONT, bg="white", fg="gray")
         self.preview_label.grid(row=0, column=0, sticky="nsew")
+        # Zoom + pan bindings (parity with Window 2).
+        self.preview_label.bind("<MouseWheel>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-4>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-5>", self._on_preview_wheel)
+        self.preview_label.bind("<Button-2>", self._on_preview_pan_start)
+        self.preview_label.bind("<B2-Motion>", self._on_preview_pan_motion)
+        self.preview_label.bind("<ButtonRelease-2>", self._on_preview_pan_end)
 
         self.status_label = tk.Label(preview_frame, text="", font=SMALL_FONT,
                                      bg=BG_COLOR, fg=FG_COLOR, anchor="w")
@@ -119,27 +166,46 @@ class Window4Screen(BaseScreen):
         self.z_scale = tk.Scale(right, from_=1, to=1, orient="vertical",
                                 showvalue=True, command=self._on_z_changed,
                                 bg=ACCENT_COLOR_BLUE, fg=FG_COLOR, length=260, label="Z")
-        self.z_scale.grid(row=0, column=0, rowspan=5, sticky="ns", padx=(0, 8))
+        self.z_scale.grid(row=0, column=0, rowspan=7, sticky="ns", padx=(0, 8))
 
         buttons = tk.Frame(right, bg=BG_COLOR)
         buttons.grid(row=0, column=1, sticky="n")
 
-        tk.Button(buttons, text="Lame précédente", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(buttons, text="Previous slice", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._prev_slice).pack(fill=tk.X, pady=2)
-        tk.Button(buttons, text="Lame suivante", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(buttons, text="Next slice", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._next_slice).pack(fill=tk.X, pady=2)
-        self.toggle_button = tk.Button(buttons, text="Afficher le diagramme", font=FONT,
+        self.toggle_button = tk.Button(buttons, text="Show diagram", font=FONT,
                                         bg=CLICK_BOXES_COLOR, fg=FG_COLOR, command=self._toggle_mode)
         self.toggle_button.pack(fill=tk.X, pady=2)
-        tk.Button(buttons, text="Valider la lame", font=FONT, bg="#00cc66", fg=FG_COLOR,
+        tk.Button(buttons, text="Validate slide", font=FONT, bg="#00cc66", fg=FG_COLOR,
                   command=self._validate_slide).pack(fill=tk.X, pady=2)
-        tk.Button(buttons, text="Sauvegarder", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(buttons, text="Save", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._save_to_output).pack(fill=tk.X, pady=2)
-        tk.Button(buttons, text="Sauvegarder vers...", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+        tk.Button(buttons, text="Save to...", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._save_to_selected_folder).pack(fill=tk.X, pady=2)
-        self.reject_button = tk.Button(buttons, text="Rejeter la lame", font=FONT,
+        self.reject_button = tk.Button(buttons, text="Reject slide", font=FONT,
                                         bg="#ff0000", fg=FG_COLOR, command=self._reject_slide)
         self.reject_button.pack(fill=tk.X, pady=2)
+        self.reset_zoom_button = tk.Button(buttons, text="Reset zoom", font=FONT,
+                                            bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+                                            command=self._reset_zoom)
+        self.reset_zoom_button.pack(fill=tk.X, pady=2)
+
+        # --- Transparency controls ---
+        transp = tk.LabelFrame(buttons, text="Transparency", font=SMALL_FONT,
+                               bg=BG_COLOR, fg=FG_COLOR)
+        transp.pack(fill=tk.X, pady=(6, 2))
+        tk.Label(transp, text="Region mask opacity", font=SMALL_FONT,
+                 bg=BG_COLOR, fg=FG_COLOR).pack(anchor="w", padx=4)
+        tk.Scale(transp, from_=0, to=100, orient="horizontal",
+                 variable=self.region_opacity, font=SMALL_FONT,
+                 command=lambda _: self._schedule_refresh()).pack(fill=tk.X, padx=4)
+        tk.Label(transp, text="Cell mask opacity", font=SMALL_FONT,
+                 bg=BG_COLOR, fg=FG_COLOR).pack(anchor="w", padx=4)
+        tk.Scale(transp, from_=0, to=100, orient="horizontal",
+                 variable=self.cell_opacity, font=SMALL_FONT,
+                 command=lambda _: self._schedule_refresh()).pack(fill=tk.X, padx=4)
 
         self.root.bind("<Configure>", self._on_configure)
 
@@ -163,12 +229,31 @@ class Window4Screen(BaseScreen):
         return re.sub(r'[<>:"/\\|?*]+', "_", str(name)).strip(" .") or "unnamed"
 
     def _timestamp_folder_name(self):
-        """Timestamp Folder Name (usage interne).
-        
+        """Timestamp Folder Name (usage interne)."""
+        return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    def _find_czi_path(self, czi_stem):
+        """Find Czi Path (usage interne).
+
+        Resolves the original .czi file for a given czi stem, searching
+        recursively under self.state.czi_folder_path. Returns the Path or None.
+
+        Args:
+            czi_stem (Any): Parametre czi_stem.
+
         Returns:
             Any: Resultat.
         """
-        return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if not czi_stem:
+            return None
+        input_dir = Path(getattr(self.state, "czi_folder_path", "./input"))
+        try:
+            for p in convert_czi_to_jpeg.iter_czi_files(input_dir, recursive=True):
+                if p.stem == czi_stem:
+                    return p
+        except Exception:
+            return None
+        return None
 
     def _latest_quantification_dir(self):
         """Latest Quantification repertoire (usage interne).
@@ -334,17 +419,19 @@ class Window4Screen(BaseScreen):
         return list((item.get("quant_data") or {}).get("cells") or [])
 
     # ================================================================ preview
-    def _load_mask_rgba(self, mask_path, target_size, alpha=0.35):
+    def _load_mask_rgba(self, mask_path, target_size, alpha=None):
         """Load Mask Rgba (usage interne).
-        
+
         Args:
             mask_path (Any): Chemin vers le fichier.
             target_size (Any): Parametre target_size.
-            alpha (Any): Parametre alpha.
-        
+            alpha (Any): Parametre alpha (None -> self.region_opacity %).
+
         Returns:
             Any: Resultat.
         """
+        if alpha is None:
+            alpha = max(0.0, min(1.0, self.region_opacity.get() / 100.0))
         if not mask_path or not os.path.exists(mask_path):
             return None
         try:
@@ -357,68 +444,38 @@ class Window4Screen(BaseScreen):
             print(f"[window4] cannot load region mask {mask_path}: {exc}")
             return None
 
-    def _overlay_cell_mask(self, base_rgba, cell_mask_path, region_mask_path=None):
+    def _overlay_cell_mask(self, mask_path, target_size, alpha=None):
         """Overlay Cell Mask (usage interne).
-        
-        Args:
-            base_rgba (Any): Parametre base_rgba.
-            cell_mask_path (Any): Chemin vers le fichier.
-            region_mask_path (Any): Chemin vers le fichier.
-        
-        Returns:
-            Any: Resultat.
-        """
-        if not cell_mask_path or not os.path.exists(cell_mask_path):
-            return base_rgba
-        try:
-            mask = Image.open(cell_mask_path).convert("L").resize(base_rgba.size, Image.Resampling.NEAREST)
-            arr = np.asarray(mask)
-            cell_bin = (arr > 20).astype(np.uint8)
-            if region_mask_path and os.path.exists(region_mask_path):
-                try:
-                    region = Image.open(region_mask_path).convert("RGB").resize(
-                        base_rgba.size, Image.Resampling.NEAREST)
-                    region_arr = np.asarray(region)
-                    region_bin = (np.any(region_arr[:, :, :3] > 8, axis=2)).astype(np.uint8)
-                    cell_bin = cell_bin * region_bin
-                except Exception as exc:
-                    print(f"[window4] cannot gate cell mask by region {region_mask_path}: {exc}")
-            cell_alpha = cell_bin * 210
-            overlay = np.zeros((base_rgba.size[1], base_rgba.size[0], 4), dtype=np.uint8)
-            overlay[:, :, 0] = 255
-            overlay[:, :, 1] = 235
-            overlay[:, :, 2] = 0
-            overlay[:, :, 3] = cell_alpha
-            return Image.alpha_composite(base_rgba, Image.fromarray(overlay, mode="RGBA"))
-        except Exception as exc:
-            print(f"[window4] cannot overlay cell mask {cell_mask_path}: {exc}")
-            return base_rgba
 
-    def _draw_cell_points(self, img_rgba, cells, radius=None):
-        """Draw Cell Points (usage interne).
-        
+        Mirrors _load_mask_rgba exactly: reads self.cell_opacity and returns a
+        single opacity-aware RGBA overlay (no separate drawn dots), so the cell
+        transparency behaves identically to the region transparency.
+
         Args:
-            img_rgba (Any): Parametre img_rgba.
-            cells (Any): Cellule(s) detectee(s).
-            radius (Any): Parametre radius.
-        
+            mask_path (Any): Chemin vers le fichier.
+            target_size (Any): Parametre target_size.
+            alpha (Any): Cell overlay strength 0..1 (None -> self.cell_opacity %).
+
         Returns:
-            Any: Resultat.
+            Any: Resultat (RGBA overlay or None).
         """
-        if not cells:
-            return img_rgba
-        draw = ImageDraw.Draw(img_rgba, "RGBA")
-        w, h = img_rgba.size
-        r = radius if radius is not None else max(1, min(w, h) // 280)
-        color = (255, 255, 0, 230)
-        for cell in cells:
-            try:
-                x = int(float(cell.get("x_relative", 0.0)) * w)
-                y = int(float(cell.get("y_relative", 0.0)) * h)
-            except Exception:
-                continue
-            draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
-        return img_rgba
+        if alpha is None:
+            alpha = max(0.0, min(1.0, self.cell_opacity.get() / 100.0))
+        if not mask_path or not os.path.exists(mask_path):
+            return None
+        try:
+            mask = Image.open(mask_path).convert("RGBA").resize(target_size, Image.Resampling.LANCZOS)
+            arr = np.asarray(mask).copy()
+            non_bg = np.any(arr[:, :, :3] > 8, axis=2)
+            # Tint precise QuPath cells cyan so they read distinctly from regions.
+            arr[:, :, 0] = non_bg.astype(np.uint8) * 0
+            arr[:, :, 1] = non_bg.astype(np.uint8) * 200
+            arr[:, :, 2] = non_bg.astype(np.uint8) * 255
+            arr[:, :, 3] = (non_bg.astype(np.uint8) * int(255 * alpha))
+            return Image.fromarray(arr, mode="RGBA")
+        except Exception as exc:
+            print(f"[window4] cannot load cell mask {mask_path}: {exc}")
+            return None
 
     def _filtered_cells(self, item=None):
         """Filtered Cells (usage interne).
@@ -450,13 +507,13 @@ class Window4Screen(BaseScreen):
         if item is None or image_path is None or not os.path.exists(image_path):
             return None
         region_png = item.get("mask_png")
-        region_path = str(region_png) if region_png and os.path.exists(region_png) else None
         base = Image.open(image_path).convert("RGBA")
-        region_overlay = self._load_mask_rgba(region_png, base.size, alpha=0.35)
+        region_overlay = self._load_mask_rgba(region_png, base.size)
         if region_overlay is not None:
             base = Image.alpha_composite(base, region_overlay)
-        base = self._overlay_cell_mask(base, item.get("cell_mask_path"), region_mask_path=region_path)
-        base = self._draw_cell_points(base, self._filtered_cells(item))
+        cell_overlay = self._overlay_cell_mask(item.get("cell_mask_path"), base.size)
+        if cell_overlay is not None:
+            base = Image.alpha_composite(base, cell_overlay)
         return base.convert("RGB")
 
     def _make_diagram_preview(self, item=None):
@@ -477,17 +534,17 @@ class Window4Screen(BaseScreen):
         ax = fig.add_subplot(111)
         fig.patch.set_facecolor("white")
         if not mask_png or not os.path.exists(str(mask_png)):
-            ax.text(0.5, 0.5, "Masque de régions manquant", ha="center", va="center",
+            ax.text(0.5, 0.5, "Region mask missing", ha="center", va="center",
                     transform=ax.transAxes, fontsize=14, color="#b00020")
             ax.set_axis_off()
         elif not cells:
-            ax.text(0.5, 0.5, "Aucune cellule détectée", ha="center", va="center",
+            ax.text(0.5, 0.5, "No cells detected", ha="center", va="center",
                     transform=ax.transAxes, fontsize=14, color="#666666")
             ax.set_axis_off()
         else:
             rows = count_cells_per_region(str(mask_png), cells)
             if not rows:
-                ax.text(0.5, 0.5, "Aucune cellule dans les régions labellisées", ha="center",
+                ax.text(0.5, 0.5, "No cells in labelled regions", ha="center",
                         va="center", transform=ax.transAxes, fontsize=13, color="#666666")
                 ax.set_axis_off()
             else:
@@ -499,10 +556,10 @@ class Window4Screen(BaseScreen):
                 ax.set_yticks(y_pos)
                 ax.set_yticklabels(names, fontsize=9)
                 ax.invert_yaxis()
-                ax.set_xlabel("Nombre de cellules", fontsize=10)
+                ax.set_xlabel("Number of cells", fontsize=10)
                 ax.grid(axis="x", linestyle="--", alpha=0.4)
                 ax.set_title(
-                    f"{item.get('roi_folder_name', '')} — {sum(counts)} cellule(s) dans {len(rows)} région(s)",
+                    f"{item.get('roi_folder_name', '')} — {sum(counts)} cell(s) in {len(rows)} region(s)",
                     fontsize=11,
                 )
                 max_count = max(counts) if counts else 1
@@ -515,6 +572,158 @@ class Window4Screen(BaseScreen):
         rgba_buf = np.asarray(canvas.buffer_rgba())
         rgb = rgba_buf[..., :3].copy()
         return Image.fromarray(rgb, mode="RGB")
+
+    # ============================================================ zoom / pan
+    def _composite_preview_base(self, item):
+        """Build (and cache) the fully-composited image at native resolution.
+
+        Cache keyed on (item id, z_index, region_opacity, cell_opacity) so the
+        expensive region+cell compositing runs only when inputs change; zoom/pan
+        then just crops from the cached image.
+
+        Args:
+            item (dict): current item.
+
+        Returns:
+            PIL.Image.RGB or None.
+        """
+        if item is None:
+            return None
+        cache_key = (
+            id(item), self.z_index,
+            round(self.region_opacity.get(), 1),
+            round(self.cell_opacity.get(), 1),
+        )
+        if self._composite_cache is not None and self._composite_cache[0] == cache_key:
+            return self._composite_cache[1]
+        base = self._make_image_preview(item)
+        if base is None:
+            self._composite_cache = None
+            return None
+        self._composite_cache = (cache_key, base)
+        return base
+
+    def _invalidate_composite_cache(self):
+        """Drop the cached composited image (e.g. on slice/nav change)."""
+        self._composite_cache = None
+
+    def _zoom_viewport(self):
+        """Compute the normalized crop rectangle for the current zoom state.
+
+        Returns:
+            tuple[float, float, float, float]: (nx0, ny0, nx1, ny1) in 0..1.
+        """
+        st = self.zoom_state
+        zoom = max(1.0, st["zoom"])
+        half = 0.5 / zoom
+        cx, cy = st["cx"], st["cy"]
+        nx0 = max(0.0, cx - half)
+        ny0 = max(0.0, cy - half)
+        nx1 = min(1.0, cx + half)
+        ny1 = min(1.0, cy + half)
+        if (nx1 - nx0) < 2 * half and (nx1 - nx0) < 1.0:
+            cx = (nx0 + nx1) / 2
+            nx0 = max(0.0, cx - half)
+            nx1 = min(1.0, cx + half)
+            self.zoom_state["cx"] = (nx0 + nx1) / 2
+        if (ny1 - ny0) < 2 * half and (ny1 - ny0) < 1.0:
+            cy = (ny0 + ny1) / 2
+            ny0 = max(0.0, cy - half)
+            ny1 = min(1.0, cy + half)
+            self.zoom_state["cy"] = (ny0 + ny1) / 2
+        return (nx0, ny0, nx1, ny1)
+
+    def _on_preview_wheel(self, event):
+        """Mouse-wheel zoom on the preview (parity with Window 2)."""
+        if event.num in (4, 5):
+            direction = 1 if event.num == 4 else -1
+        else:
+            direction = 1 if (event.delta or 0) > 0 else -1
+        if direction == 0:
+            return
+        st = self.zoom_state
+        old_zoom = st["zoom"]
+        new_zoom = old_zoom * _ZOOM_STEP if direction > 0 else old_zoom / _ZOOM_STEP
+        new_zoom = min(_ZOOM_MAX, max(_ZOOM_MIN, new_zoom))
+        if abs(new_zoom - old_zoom) < 1e-6:
+            return
+        # Keep the point under the cursor stable.
+        disp = self._displayed_size()
+        label = self.preview_label
+        if disp is not None and label is not None:
+            img_w, img_h = disp
+            if img_w > 1 and img_h > 1:
+                offset_x = (label.winfo_width() - img_w) // 2
+                offset_y = (label.winfo_height() - img_h) // 2
+                px = event.x - offset_x
+                py = event.y - offset_y
+                if 0 <= px < img_w and 0 <= py < img_h:
+                    nx_view = px / img_w
+                    ny_view = py / img_h
+                    nx0, ny0, nx1, ny1 = self.viewport
+                    span_x = max(1e-6, nx1 - nx0)
+                    span_y = max(1e-6, ny1 - ny0)
+                    src_nx = nx0 + nx_view * span_x
+                    src_ny = ny0 + ny_view * span_y
+                    st["zoom"] = new_zoom
+                    half_new = 0.5 / new_zoom
+                    cx = src_nx + (0.5 - nx_view) * half_new * 2
+                    cy = src_ny + (0.5 - ny_view) * half_new * 2
+                    self.zoom_state["cx"] = min(1.0, max(0.0, cx))
+                    self.zoom_state["cy"] = min(1.0, max(0.0, cy))
+                    self._schedule_refresh()
+                    return
+        st["zoom"] = new_zoom
+        self._schedule_refresh()
+
+    def _displayed_size(self):
+        """Return (w, h) of the currently displayed PhotoImage, or None."""
+        photo = self.preview_photo
+        if photo is None:
+            return None
+        try:
+            return photo.width(), photo.height()
+        except Exception:
+            return None
+
+    def _on_preview_pan_start(self, event):
+        """Middle-mouse pan start (parity with Window 2)."""
+        self.pan_state["start_x"] = event.x
+        self.pan_state["start_y"] = event.y
+        self.pan_state["start_cx"] = self.zoom_state["cx"]
+        self.pan_state["start_cy"] = self.zoom_state["cy"]
+        self.pan_state["viewport"] = self.viewport
+
+    def _on_preview_pan_motion(self, event):
+        """Middle-mouse pan motion (parity with Window 2)."""
+        if not self.pan_state:
+            return
+        disp = self._displayed_size()
+        if disp is None:
+            return
+        img_w, img_h = disp
+        if img_w <= 1 or img_h <= 1:
+            return
+        dx = event.x - self.pan_state.get("start_x", 0)
+        dy = event.y - self.pan_state.get("start_y", 0)
+        nx0, ny0, nx1, ny1 = self.pan_state.get("viewport", (0.0, 0.0, 1.0, 1.0))
+        span_x = max(1e-6, nx1 - nx0)
+        span_y = max(1e-6, ny1 - ny0)
+        dnx = -(dx / img_w) * span_x
+        dny = -(dy / img_h) * span_y
+        self.zoom_state["cx"] = min(1.0, max(0.0, self.pan_state["start_cx"] + dnx))
+        self.zoom_state["cy"] = min(1.0, max(0.0, self.pan_state["start_cy"] + dny))
+        self._schedule_refresh()
+
+    def _on_preview_pan_end(self, _event=None):
+        """Middle-mouse pan end."""
+        self.pan_state.clear()
+
+    def _reset_zoom(self):
+        """Reset zoom to fit-to-window."""
+        self.zoom_state = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
+        self.viewport = (0.0, 0.0, 1.0, 1.0)
+        self._refresh_preview()
 
     def _get_preview_size(self):
         """Get Preview Size (usage interne).
@@ -548,19 +757,50 @@ class Window4Screen(BaseScreen):
         except Exception:
             pass
 
+    def _schedule_refresh(self, delay_ms=40):
+        """Debounced refresh for rapid-input callbacks (opacity drag, zoom, pan).
+
+        Coalesces a burst of events into a single repaint per `delay_ms`, so a
+        slider drag or pan motion doesn't trigger one full re-composite per event.
+        The composite cache still prevents redundant work when inputs are unchanged.
+        """
+        token = (getattr(self, "_refresh_token", 0) + 1)
+        self._refresh_token = token
+        try:
+            self.root.after(delay_ms, lambda t=token: self._refresh_if_current(t))
+        except Exception:
+            self._refresh_preview()
+
+    def _refresh_if_current(self, token):
+        if getattr(self, "_refresh_token", 0) == token:
+            self._refresh_preview()
+
     def _refresh_preview(self):
         """Refresh Preview (usage interne)."""
         if self.preview_label is None or not self.preview_label.winfo_exists():
             return
         item = self._current_item()
         if item is None:
-            self.preview_label.config(image="", text="Aucune lame disponible.\nLancer les fenêtres 2 et 3 d'abord.")
-            self._set_status("Aucun élément trouvé dans ./output/downsampled20_jpeg.")
+            self.preview_label.config(image="", text="No slide available.\nRun Windows 2 and 3 first.")
+            self._set_status("No items found in ./output/downsampled20_jpeg.")
             return
-        pil_img = self._make_image_preview(item) if self.mode == "image" else self._make_diagram_preview(item)
+        if self.mode == "image":
+            pil_img = self._composite_preview_base(item)
+        else:
+            pil_img = self._make_diagram_preview(item)
         if pil_img is None:
-            self.preview_label.config(image="", text="Prévisualisation indisponible")
+            self.preview_label.config(image="", text="Preview unavailable")
             return
+        # Apply zoom cropping for image mode (diagram stays fit-to-window).
+        if self.mode == "image" and self.zoom_state["zoom"] > 1.0 + 1e-6:
+            self.viewport = self._zoom_viewport()
+            nx0, ny0, nx1, ny1 = self.viewport
+            sw, sh = pil_img.size
+            left = int(round(nx0 * sw))
+            upper = int(round(ny0 * sh))
+            right = max(left + 1, int(round(nx1 * sw)))
+            lower = max(upper + 1, int(round(ny1 * sh)))
+            pil_img = pil_img.crop((left, upper, right, lower))
         max_w, max_h = self._get_preview_size()
         new_w, new_h = get_img_dims(pil_img.width, pil_img.height, max_w, max_h)
         display = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
@@ -571,22 +811,24 @@ class Window4Screen(BaseScreen):
         cells = self._filtered_cells(item)
         missing = []
         if not os.path.exists(item.get("mask_png", "")):
-            missing.append("masque régions")
+            missing.append("region mask")
         if not item.get("quant_json"):
             missing.append("quantification")
-        missing_txt = f" — manquant: {', '.join(missing)}" if missing else ""
+        missing_txt = f" — missing: {', '.join(missing)}" if missing else ""
+        zoom_txt = f" | zoom {self.zoom_state['zoom']:.1f}x" if self.zoom_state["zoom"] > 1.0 + 1e-6 else ""
         self._set_status(
             f"{self.index + 1}/{len(self.items)} | {item['roi_folder_name']} | "
             f"Z {self.z_index + 1}/{max(1, z_count)} | total: {len(cells)}"
+            f"{zoom_txt}"
             f"{missing_txt}"
         )
         if self.toggle_button is not None and self.toggle_button.winfo_exists():
-            self.toggle_button.config(text=("Afficher le diagramme" if self.mode == "image" else "Afficher l'image"))
+            self.toggle_button.config(text=("Show diagram" if self.mode == "image" else "Show image"))
 
     # ================================================================ handlers
     def _on_z_changed(self, value):
         """On couche Z Changed (usage interne).
-        
+
         Args:
             value (Any): Valeur.
         """
@@ -594,6 +836,7 @@ class Window4Screen(BaseScreen):
             self.z_index = max(0, int(float(value)) - 1)
         except Exception:
             self.z_index = 0
+        self._invalidate_composite_cache()
         self._refresh_preview()
 
     def _prev_slice(self):
@@ -601,6 +844,7 @@ class Window4Screen(BaseScreen):
         if self.index > 0:
             self.index -= 1
             self.z_index = 0
+            self._reset_zoom()
             self._update_z_scale()
             self._refresh_preview()
 
@@ -609,6 +853,7 @@ class Window4Screen(BaseScreen):
         if self.index < len(self.items) - 1:
             self.index += 1
             self.z_index = 0
+            self._reset_zoom()
             self._update_z_scale()
             self._refresh_preview()
 
@@ -618,12 +863,8 @@ class Window4Screen(BaseScreen):
         self._refresh_preview()
 
     def _on_configure(self, _event=None):
-        """On Configure (usage interne).
-        
-        Args:
-            _event (Any): Parametre _event.
-        """
-        self._refresh_preview()
+        """On Configure (usage interne)."""
+        self._schedule_refresh()
 
     # ================================================================ exports
     def _write_czi_summary_csvs(self, dest_dir):
@@ -723,9 +964,9 @@ class Window4Screen(BaseScreen):
             out_csv = dest_dir / f"{safe_stem}_summary.csv"
             with open(out_csv, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                # ---- Table 1 : rollup par région ----
+                # ---- Table 1 : region rollup ----
                 writer.writerow([f"# {czi_stem}"])
-                writer.writerow(["region_name", "cell_volume", "cell_number"])
+                writer.writerow(["region_name", "cell_volume (mm3)", "cell_number (cells)"])
                 for lid in sorted(region_t1.keys()):
                     agg = region_t1[lid]
                     writer.writerow([
@@ -733,12 +974,13 @@ class Window4Screen(BaseScreen):
                         f"{agg['volume']:.6f}" if agg["volume"] else "0.000000",
                         agg["count"],
                     ])
-                # ---- Table 2 : détail ROI x région ----
+                # ---- Table 2 : ROI x region detail ----
                 writer.writerow([])
                 writer.writerow([f"# {czi_stem} — detail"])
                 writer.writerow([
-                    "ROI_name", "region_name", "brain_area", "num_cell",
-                    "surface", "slice_depth", "interslice", "cell concentration",
+                    "ROI_name", "region_name", "brain_area (mm2)", "num_cell (cells)",
+                    "surface (mm2)", "slice_depth (um)", "interslice (um)",
+                    "cell concentration (cells/mm2)",
                 ])
                 for row in detail_t2:
                     writer.writerow([
@@ -760,16 +1002,16 @@ class Window4Screen(BaseScreen):
         """
         item = self._current_item()
         if item is None:
-            messagebox.showwarning("Sauvegarde", "Aucune lame à sauvegarder.")
+            messagebox.showwarning("Save", "No slide to save.")
             return None
         dest_dir = Path(dest_root) / self._safe_folder_name(item.get("czi_stem", "czi"))
         dest_dir.mkdir(parents=True, exist_ok=True)
         image_preview = self._make_image_preview(item)
         diagram_preview = self._make_diagram_preview(item)
         if image_preview is None:
-            raise RuntimeError("Impossible de générer image+2masks.jpeg")
+            raise RuntimeError("Cannot generate image+2masks.jpeg")
         if diagram_preview is None:
-            raise RuntimeError("Impossible de générer graph.jpeg")
+            raise RuntimeError("Cannot generate graph.jpeg")
         image_preview.save(dest_dir / "image+2masks.jpeg", format="JPEG", quality=95)
         diagram_preview.save(dest_dir / "graph.jpeg", format="JPEG", quality=95)
         cell_mask = item.get("cell_mask_path")
@@ -795,32 +1037,32 @@ class Window4Screen(BaseScreen):
         except Exception as exc:
             messagebox.showerror("Validation", str(exc))
             return
-        messagebox.showinfo("Validation", f"Lame validée dans:\n{dest}")
+        messagebox.showinfo("Validation", f"Slide validated in:\n{dest}")
 
     def _save_to_output(self):
         """Save To Output (usage interne)."""
         try:
             dest = self._save_bundle(self.output_dir / self._timestamp_folder_name())
         except Exception as exc:
-            messagebox.showerror("Sauvegarde", str(exc))
+            messagebox.showerror("Save", str(exc))
             return
-        messagebox.showinfo("Sauvegarde", f"Résultats sauvegardés dans:\n{dest}")
+        messagebox.showinfo("Save", f"Results saved in:\n{dest}")
 
     def _save_to_selected_folder(self):
         """Save To Selected Folder (usage interne)."""
-        folder = filedialog.askdirectory(title="Choisir le dossier de sauvegarde", mustexist=True)
+        folder = filedialog.askdirectory(title="Choose the save folder", mustexist=True)
         if not folder:
             return
         try:
             dest = self._save_bundle(Path(folder) / self._timestamp_folder_name())
         except Exception as exc:
-            messagebox.showerror("Sauvegarde", str(exc))
+            messagebox.showerror("Save", str(exc))
             return
-        messagebox.showinfo("Sauvegarde", f"Résultats sauvegardés dans:\n{dest}")
+        messagebox.showinfo("Save", f"Results saved in:\n{dest}")
 
     def _refresh_after_quantification(self, output_dir):
         """Refresh After Quantification (usage interne).
-        
+
         Args:
             output_dir (Any): Repertoire (dossier).
         """
@@ -830,23 +1072,23 @@ class Window4Screen(BaseScreen):
         self._refresh_preview()
         if self.reject_button is not None and self.reject_button.winfo_exists():
             self.reject_button.config(state=tk.NORMAL)
-        self._set_status(f"Quantification relancée terminée: {output_dir}")
+        self._set_status(f"Re-quantification finished: {output_dir}")
 
     def _reject_slide(self):
         """Reject Slide (usage interne)."""
         item = self._current_item()
         image_path = self._current_image_path(item)
         if item is None or image_path is None:
-            messagebox.showwarning("Rejet", "Aucune image à re-quantifier.")
+            messagebox.showwarning("Reject", "No image to re-quantify.")
             return
         q4_dir = self.output_dir / QUANTIFICATION_JPEG_OUTPUT_SUBDIR / item["roi_folder_name"]
         q4_image = q4_dir / image_path.name
         if not q4_image.exists():
-            messagebox.showerror("Rejet", f"JPEG 4x introuvable:\n{q4_image}")
+            messagebox.showerror("Reject", f"4x JPEG not found:\n{q4_image}")
             return
         if self.reject_button is not None:
             self.reject_button.config(state=tk.DISABLED)
-        self._set_status("Re-quantification en arrière-plan...")
+        self._set_status("Re-quantification in background...")
         output_dir = self.output_dir / f"cell_quantification_{datetime.now().strftime('%Y%m%d_%H%M%S')}_rerun"
 
         def worker():
@@ -859,7 +1101,7 @@ class Window4Screen(BaseScreen):
                     """Show Error"""
                     if self.reject_button is not None and self.reject_button.winfo_exists():
                         self.reject_button.config(state=tk.NORMAL)
-                    messagebox.showerror("Rejet", str(exc))
+                    messagebox.showerror("Reject", str(exc))
                     self._refresh_preview()
                 self.root.after(0, show_error)
 
@@ -873,5 +1115,5 @@ class Window4Screen(BaseScreen):
 
     def _go_next(self):
         """Go Next (usage interne)."""
-        # Window 4 est la dernière étape ; "Next" ferme proprement l'app.
+        # Window 4 is the last step; "Next" closes the app cleanly.
         self.app.root.quit()

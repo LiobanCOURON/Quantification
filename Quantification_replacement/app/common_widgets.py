@@ -5,7 +5,57 @@ Voir le README pour l'architecture generale.
 import tkinter as tk
 from tkinter import ttk
 
-from app.theme import FONT, CLICK_BOXES_COLOR, BG_COLOR, FG_COLOR
+from app.theme import FONT, SMALL_FONT, CLICK_BOXES_COLOR, BG_COLOR, FG_COLOR
+
+
+def add_help_button(parent, title, text, corner="ne", padx=8, pady=6):
+    """Drop a small '?' button in the top-right of *parent* that opens a help pop-up.
+
+    Args:
+        parent (tk.Widget): container (usually the window header frame). The button
+            is placed with pack(side=tk.RIGHT) so callers should pack it last.
+        title (str): pop-up window title.
+        text (str): multi-line help text shown in the pop-up.
+        corner (str): ignored (kept for API stability); button is packed right.
+        padx (int): horizontal padding.
+        pady (int): vertical padding.
+
+    Returns:
+        tk.Button: the created help button.
+    """
+    btn = tk.Button(
+        parent, text="?", font=("Arial", 12, "bold"),
+        width=2, bg=ACCENT_COLOR_BLUE if False else CLICK_BOXES_COLOR,
+        fg=FG_COLOR, relief="raised", cursor="question_arrow",
+        command=lambda: _open_help(title, text),
+    )
+    btn.pack(side=tk.RIGHT, padx=padx, pady=pady)
+    return btn
+
+
+def _open_help(title, text):
+    """Open a non-modal help pop-up (usage interne)."""
+    win = tk.Toplevel()
+    win.title(title)
+    win.transient()
+    win.resizable(True, True)
+    try:
+        win.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    body = tk.Text(win, font=SMALL_FONT, wrap=tk.WORD, bg="white", fg=FG_COLOR,
+                   padx=12, pady=12, width=64, height=18)
+    body.insert("1.0", text)
+    body.config(state=tk.DISABLED)
+    body.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+    close = tk.Button(win, text="Close", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
+                      command=win.destroy)
+    close.pack(pady=(0, 8))
+    win.update_idletasks()
+    try:
+        win.geometry(f"+{win.winfo_screenwidth() // 2 - 200}+{win.winfo_screenheight() // 2 - 180}")
+    except tk.TclError:
+        pass
 
 
 class ScrollableList:
