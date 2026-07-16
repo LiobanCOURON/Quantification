@@ -15,7 +15,7 @@ from app.theme import (
     BG_COLOR, FG_COLOR, SMALL_FONT, FONT, CLICK_BOXES_COLOR,
     ACCENT_COLOR_BLUE, ACCENT_COLOR_GREEN, ERROR_COLOR,
 )
-from app.common_widgets import PreviewZoomPanMixin
+from app.common_widgets import PreviewZoomPanMixin, add_help_button
 from workers.czi_converter import (
     QUANTIFICATION_JPEG_OUTPUT_SUBDIR,
     _conversion_running as quantification_conversion_running,
@@ -78,6 +78,23 @@ class Window3Screen(BaseScreen, PreviewZoomPanMixin):
         image_count = len(discover_jpeg_images(input_root, recursive=True))
         tk.Label(header, text=f"Source JPEG 4x : {input_root}  —  {image_count} image(s) détectée(s)",
                  font=SMALL_FONT, bg=BG_COLOR, fg=FG_COLOR).pack(anchor="w", pady=(2, 0))
+        add_help_button(
+            header, "Window 3 — Help",
+            "WINDOW 3 — Cellular quantification\n"
+            "------------------------------------------------\n\n"
+            "LEFT (progression + log)\n"
+            "  • Global / Image progress bars track the quantification run.\n"
+            "  • 'Journal / triggers' logs every step and trigger hit.\n\n"
+            "RIGHT (preview)\n"
+            "  • Shows the last detected region mask.\n"
+            "  • Mouse wheel : zoom in / out, centered on the cursor.\n"
+            "  • Middle mouse button (drag) : pan the image when zoomed.\n"
+            "  • 'Reset zoom' button : return to fit-to-window.\n\n"
+            "BOTTOM (buttons)\n"
+            "  • 'Previous' : replay the previous slice's result.\n"
+            "  • 'Start quantification' : run the two-pass QuPath export.\n"
+            "  • 'Next' : advance to the next slice.\n",
+        )
 
         content = tk.Frame(outer, bg=BG_COLOR)
         content.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)

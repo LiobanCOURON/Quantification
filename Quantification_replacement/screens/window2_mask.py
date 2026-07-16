@@ -21,6 +21,7 @@ from app.theme import (
     ACCENT_COLOR_BLUE, ACCENT_COLOR_GREEN, ERROR_COLOR,
 )
 from app.image_utils import get_img_dims, _resolve_image_path
+from app.common_widgets import add_help_button
 from workers.czi_converter import (
     DOWNSAMPLE_FACTOR, JPEG_OUTPUT_SUBDIR,
     start_conversions,
@@ -91,6 +92,27 @@ class Window2Screen(BaseScreen):
 
         outer = tk.Frame(self.frame, bg=BG_COLOR)
         outer.pack(fill=tk.BOTH, expand=True)
+
+        # Top header: title (left) + help button (right).
+        header = tk.Frame(outer, bg=BG_COLOR)
+        header.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(8, 2))
+        tk.Label(header, text="Window 2 — Mask + alignment 2x2",
+                 font=("Arial", 16, "bold"), bg=BG_COLOR, fg=FG_COLOR
+                 ).pack(side=tk.LEFT)
+        add_help_button(
+            header, "Window 2 — Help",
+            "WINDOW 2 — Mask placement + 2x2 alignment\n"
+            "------------------------------------------------\n\n"
+            "FOUR PANES (MRI / Histology / Atlas / Alignment)\n"
+            "  • Click on a pane to place a marker (aligned point).\n"
+            "  • Mouse wheel : zoom a pane in / out, centered on cursor.\n"
+            "  • Middle mouse button (drag) : pan a pane when zoomed.\n"
+            "  • 'Réinitialiser le zoom' : reset all panes to fit.\n\n"
+            "ATLAS VALUE\n"
+            "  • Double-click the atlas value to edit it inline.\n\n"
+            "SLIDER (bottom)\n"
+            "  • Scrolls through the atlas levels.\n",
+        )
 
         grid_frame = tk.Frame(outer, bg=BG_COLOR)
         grid_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)

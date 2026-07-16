@@ -12,7 +12,7 @@ from PIL import Image, ImageTk
 from app.base_screen import BaseScreen
 from app.theme import BG_COLOR, FG_COLOR, SMALL_FONT, FONT, CLICK_BOXES_COLOR
 from app.image_utils import load_and_resize_image
-from app.common_widgets import ScrollableList, FooterBar, PreviewZoomPanMixin
+from app.common_widgets import ScrollableList, FooterBar, PreviewZoomPanMixin, add_help_button
 import convert_czi_to_jpeg
 
 PREVIEW_DOWNSAMPLE = 50
@@ -55,6 +55,27 @@ class Window1Screen(BaseScreen, PreviewZoomPanMixin):
         # Footer plein largeur (packé en premier pour réserver l'espace).
         footer = FooterBar(self.frame)
         footer.add_button("Next", command=lambda: self._go_next())
+
+        # Top header: title (left) + help button (right).
+        header = tk.Frame(self.frame, bg=BG_COLOR)
+        header.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(8, 2))
+        tk.Label(header, text="Window 1 — Quick .czi preview",
+                 font=("Arial", 16, "bold"), bg=BG_COLOR, fg=FG_COLOR
+                 ).pack(side=tk.LEFT)
+        add_help_button(
+            header, "Window 1 — Help",
+            "WINDOW 1 — Quick .czi preview\n"
+            "------------------------------------------------\n\n"
+            "LEFT\n"
+            "  • Source checkboxes : pick where .czi files are read from.\n"
+            "  • Slice depth / Interslice (µm) : physical spacing of Z layers.\n"
+            "  • Name list : click a .czi to preview its converted scenes.\n\n"
+            "RIGHT (preview)\n"
+            "  • Mouse wheel : zoom in / out, centered on the cursor.\n"
+            "  • Middle mouse button (drag) : pan the image when zoomed.\n"
+            "  • 'Reset zoom' button : return to fit-to-window.\n"
+            "  • 'Précédant' / 'Suivant' : move between ROI scenes.\n",
+        )
 
         main = tk.Frame(self.frame, bg=BG_COLOR)
         main.pack(fill=tk.BOTH, expand=True)
