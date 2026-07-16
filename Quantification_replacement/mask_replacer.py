@@ -538,7 +538,7 @@ def _compute_warped(depth, normalized_points, histo_path=None):
     displayed ROI jpeg so the overlay matches what the user sees.
     """
     if len(normalized_points) < 2:
-        raise ValueError("Sélectionner au moins 2 points")
+        raise ValueError("Select at least 2 points")
 
     # --- 1. Full-resolution atlas mask (native resolution, oriented like UI) ---
     labels = get_atlas_slice_fullres(depth)  # (Hm, Wm) int label array

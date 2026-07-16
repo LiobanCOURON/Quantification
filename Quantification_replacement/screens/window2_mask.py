@@ -192,7 +192,7 @@ class Window2Screen(BaseScreen):
 
         tk.Button(button_frame, text="Previous", font=FONT, bg=CLICK_BOXES_COLOR, fg=FG_COLOR,
                   command=self._go_prev).pack(side=tk.LEFT)
-        place_button = tk.Button(button_frame, text="Placer des marqueurs", font=FONT,
+        place_button = tk.Button(button_frame, text="Place markers", font=FONT,
                                  bg=ACCENT_COLOR_BLUE, fg=FG_COLOR, command=self._toggle_marker_mode)
         place_button.pack(side=tk.LEFT, padx=10)
         self.marker_buttons["place"] = place_button
